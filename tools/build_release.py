@@ -63,7 +63,7 @@ set -euo pipefail
 
 VERSION="{version}"
 SOURCE_DIR="$(cd "$(dirname "$0")" && pwd)"
-INSTALL_DIR="${{WOND_INSTALL_DIR:-$HOME/Applications/Wond_Local}}"
+INSTALL_DIR="${{WOND_INSTALL_DIR:-$HOME/Applications/Wond}}"
 SOURCE_REAL="$(cd "$SOURCE_DIR" && pwd -P)"
 
 echo "Installing Wond $VERSION"
