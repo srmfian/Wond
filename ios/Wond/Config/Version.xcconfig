@@ -1,4 +1,4 @@
 // Shared non-secret version values for the Wond iOS targets.
 
-WOND_MARKETING_VERSION = 0.1.0
-WOND_CURRENT_PROJECT_VERSION = 8
+WOND_MARKETING_VERSION = 0.2.0
+WOND_CURRENT_PROJECT_VERSION = 9

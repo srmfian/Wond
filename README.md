@@ -19,7 +19,7 @@ Wond 是一个本机优先的个人上下文系统。它把 Mac 上的日常活�
 
 ### 一键安装包
 
-从 GitHub Release 下载 `Wond-0.1.0-macos.zip`，解压后双击 `install.command`。
+从 GitHub Release 下载 `Wond-0.2.0-macos.zip`，解压后双击 `install.command`。
 
 安装器会把 Wond 复制到 `~/Applications/Wond`，创建专用 Python virtualenv，初始化 `config.json`，并可选择一次性加载 dashboard、sync server 和后台 monitor 的 LaunchAgent。重复安装会保留已有 `config.json`、`.venv/` 和 `data/`。
 
@@ -178,7 +178,7 @@ python3 -m wond dashboard --open
 python3 -m wond install-dashboard-agent --load
 ```
 
-它包含 overview、doctor、audio queue、search、timeline、reports、sources、speakers、sync 和 settings 等页面。适合查看最近采集、音频队列、speaker review、移动端同步状态和配置概览。
+它现在按主工作区组织：今天、每日工作台、项目、音频、资料、搜索问答和设置向导。Action Inbox、项目记忆、Meeting Mode、Speaker 训练、隐私与保留、手机同步、Doctor 和记录维护会作为对应工作区的子页保留，旧 hash 链接仍可直接打开。
 
 Doctor 用于命令行诊断：
 
