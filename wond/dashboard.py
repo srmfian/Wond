@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import secrets
 import shutil
+import socket
 import subprocess
 import time
 import urllib.error
@@ -177,6 +179,9 @@ def make_handler(settings: Settings):
             if parsed.path == "/api/overview":
                 self.send_json(api_overview(request_settings))
                 return
+            if parsed.path == "/api/setup":
+                self.send_json(api_setup(request_settings))
+                return
             if parsed.path == "/api/action-center":
                 self.send_json(action_center_payload(request_settings, query(parsed)))
                 return
@@ -271,6 +276,10 @@ def make_handler(settings: Settings):
                 payload = self.read_payload()
                 if parsed.path == "/api/ask":
                     self.send_json(api_ask(request_settings, payload))
+                    return
+                if parsed.path == "/api/setup-token":
+                    result, status = api_setup_token(request_settings)
+                    self.send_json(result, status)
                     return
                 if parsed.path == "/api/action":
                     result, status = api_action(request_settings, payload)
@@ -452,6 +461,188 @@ def api_overview(settings: Settings) -> dict[str, Any]:
         }
     finally:
         store.close()
+
+
+def api_setup(settings: Settings) -> dict[str, Any]:
+    store = Store(settings.db_path)
+    try:
+        counts = table_counts(store)
+    finally:
+        store.close()
+    token_configured = bool(str(settings.mobile_sync.get("token") or "").strip())
+    sync_port = int(settings.mobile_sync.get("port") or 8765)
+    dashboard_port = 8787
+    service_rows = setup_service_rows()
+    steps = [
+        setup_step("config", "配置文件", settings.path.exists(), str(settings.path)),
+        setup_step("database", "本地数据库", settings.db_path.exists(), str(settings.db_path)),
+        setup_step("token", "手机同步 token", token_configured, "已配置" if token_configured else "需要生成"),
+        setup_step("sync", "同步服务", service_ready(service_rows, "sync"), service_message(service_rows, "sync")),
+        setup_step("agent", "后台采集", service_ready(service_rows, "agent"), service_message(service_rows, "agent")),
+        setup_step("dashboard", "Dashboard 服务", service_ready(service_rows, "dashboard"), service_message(service_rows, "dashboard")),
+    ]
+    complete = sum(1 for item in steps if item["ok"])
+    return {
+        "ok": True,
+        "generated_at": now(settings.timezone).isoformat(timespec="seconds"),
+        "summary": {
+            "complete": complete,
+            "total": len(steps),
+            "percent": round(complete / max(1, len(steps)) * 100),
+            "ready": complete == len(steps),
+        },
+        "steps": steps,
+        "services": service_rows,
+        "config": {
+            "path": str(settings.path),
+            "data_dir": str(settings.data_dir),
+            "database": str(settings.db_path),
+            "timezone": settings.timezone,
+            "counts": counts,
+        },
+        "sync": {
+            "host": str(settings.mobile_sync.get("host") or "0.0.0.0"),
+            "port": sync_port,
+            "token_configured": token_configured,
+            "health_url": sync_health_url(settings),
+            "upload_urls": setup_upload_urls(sync_port),
+            "lan_addresses": lan_ip_candidates(),
+        },
+        "dashboard": {
+            "local_url": f"http://127.0.0.1:{dashboard_port}",
+            "port": dashboard_port,
+        },
+    }
+
+
+def api_setup_token(settings: Settings) -> tuple[dict[str, Any], HTTPStatus]:
+    token = secrets.token_urlsafe(32)
+    try:
+        document = load_config_document(settings.path)
+        set_config_path(document, ["mobile_sync", "token"], token)
+        save_config_document(settings.path, document)
+        refreshed = load_settings(settings.path)
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR
+    payload = api_setup(refreshed)
+    payload.update({"token": token, "token_preview": f"{token[:8]}...{token[-6:]}"})
+    return payload, HTTPStatus.OK
+
+
+def setup_step(key: str, title: str, ok: bool, detail: str) -> dict[str, Any]:
+    return {
+        "key": key,
+        "title": title,
+        "ok": bool(ok),
+        "status": "ok" if ok else "warn",
+        "detail": detail,
+    }
+
+
+def setup_service_rows() -> list[dict[str, Any]]:
+    rows = []
+    for key, title, label, path, action_name in [
+        ("agent", "后台采集", launch_agent_label(), launch_agent_path(), "install_agent"),
+        ("sync", "手机同步", sync_launch_agent_label(), sync_launch_agent_path(), "install_sync_agent"),
+        ("dashboard", "Dashboard", dashboard_launch_agent_label(), dashboard_launch_agent_path(), "install_dashboard_agent"),
+    ]:
+        state = launchctl_state(label)
+        installed = path.exists()
+        loaded = state != "not loaded"
+        rows.append(
+            {
+                "key": key,
+                "title": title,
+                "label": label,
+                "path": str(path),
+                "installed": installed,
+                "state": state,
+                "loaded": loaded,
+                "ready": installed and loaded,
+                "status": "ok" if installed and loaded else "warn" if installed else "fail",
+                "action": action_name,
+            }
+        )
+    return rows
+
+
+def service_ready(rows: list[dict[str, Any]], key: str) -> bool:
+    return any(row["key"] == key and row["ready"] for row in rows)
+
+
+def service_message(rows: list[dict[str, Any]], key: str) -> str:
+    for row in rows:
+        if row["key"] == key:
+            installed = "installed" if row["installed"] else "missing"
+            return f"{installed}, {row['state']}"
+    return "missing"
+
+
+def setup_upload_urls(port: int) -> list[dict[str, str]]:
+    candidates = [{"label": "本机测试", "url": f"http://127.0.0.1:{port}/upload"}]
+    addresses = lan_ip_candidates()
+    for address in addresses:
+        candidates.append({"label": "iPhone Wi-Fi", "url": f"http://{address}:{port}/upload"})
+    if not addresses:
+        candidates.append({"label": "手动 Wi-Fi", "url": f"http://<Mac-LAN-IP>:{port}/upload"})
+    return candidates
+
+
+def lan_ip_candidates() -> list[str]:
+    candidates: list[str] = []
+    for interface in ("en0", "en1", "bridge100"):
+        try:
+            proc = subprocess.run(
+                ["ipconfig", "getifaddr", interface],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=1,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if proc.returncode == 0:
+            add_lan_candidate(candidates, proc.stdout.strip())
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.settimeout(1)
+            sock.connect(("8.8.8.8", 80))
+            add_lan_candidate(candidates, sock.getsockname()[0])
+    except OSError:
+        pass
+    try:
+        _hostname, _aliases, addresses = socket.gethostbyname_ex(socket.gethostname())
+        for address in addresses:
+            add_lan_candidate(candidates, address)
+    except OSError:
+        pass
+    return candidates
+
+
+def add_lan_candidate(candidates: list[str], value: str) -> None:
+    if not is_private_ipv4(value):
+        return
+    if value not in candidates:
+        candidates.append(value)
+
+
+def is_private_ipv4(value: str) -> bool:
+    parts = value.split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        nums = [int(part) for part in parts]
+    except ValueError:
+        return False
+    if any(num < 0 or num > 255 for num in nums):
+        return False
+    if nums[0] == 10:
+        return True
+    if nums[0] == 172 and 16 <= nums[1] <= 31:
+        return True
+    if nums[0] == 192 and nums[1] == 168:
+        return True
+    return False
 
 
 def api_doctor(settings: Settings) -> dict[str, Any]:
@@ -3253,6 +3444,27 @@ DASHBOARD_HTML = r"""<!doctype html>
     .sync-storage-tile .value { font-size: 20px; font-weight: 750; margin-top: 4px; }
     .sync-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
     .sync-actions .btn { width: 100%; }
+    .setup-hero { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px; align-items: stretch; }
+    .setup-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+    .setup-kpi { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fbfcfe; min-width: 0; }
+    .setup-kpi .label { color: var(--muted); font-size: 12px; }
+    .setup-kpi .value { font-size: 25px; font-weight: 750; margin-top: 5px; overflow-wrap: anywhere; word-break: break-word; }
+    .setup-kpi .hint { color: var(--muted); font-size: 12px; margin-top: 3px; overflow-wrap: anywhere; word-break: break-word; }
+    .setup-main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px; align-items: start; margin-top: 14px; }
+    .setup-main > * { min-width: 0; }
+    .setup-stack, .setup-side, .setup-step-list, .setup-service-list, .setup-url-list, .setup-copy-list { display: grid; gap: 10px; }
+    .setup-step, .setup-service, .setup-url-row, .setup-copy-row { border: 1px solid var(--line); border-radius: 8px; padding: 11px; background: #fbfcfe; min-width: 0; }
+    .setup-step, .setup-service { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; gap: 10px; align-items: start; }
+    .setup-title { font-weight: 800; line-height: 1.3; overflow-wrap: anywhere; }
+    .setup-detail { color: var(--muted); font-size: 12px; line-height: 1.45; margin-top: 3px; overflow-wrap: anywhere; word-break: break-word; }
+    .setup-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .setup-actions .btn { width: 100%; text-align: left; }
+    .setup-url-row { display: grid; grid-template-columns: 112px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+    .setup-url { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; word-break: break-word; }
+    .setup-token-box { border: 1px solid var(--line); border-radius: 8px; padding: 11px; background: #f8fafc; display: grid; gap: 8px; }
+    .setup-token-value { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 750; overflow-wrap: anywhere; word-break: break-word; }
+    .setup-progress { height: 10px; background: #e5e7eb; border-radius: 999px; overflow: hidden; margin-top: 12px; }
+    .setup-progress span { display: block; height: 100%; background: var(--accent-2); }
     .settings-hero { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; align-items: start; }
     .settings-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
     .settings-kpi { border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fbfcfe; min-width: 0; }
@@ -3529,8 +3741,8 @@ DASHBOARD_HTML = r"""<!doctype html>
       .app { grid-template-columns: 1fr; }
       aside { position: static; height: auto; }
       nav { grid-template-columns: repeat(2, minmax(0,1fr)); }
-      .grid.cols-4, .grid.cols-3, .grid.cols-2, .split, .reports-layout, .reports-metrics, .day-layout, .day-toolbar, .today-summary, .today-main, .today-stats, .action-hero, .action-main, .action-kpis, .action-toolbar, .insight-hero, .insight-main, .insight-kpis, .insight-toolbar, .overview-hero, .overview-main, .overview-kpis, .doctor-hero, .doctor-main, .doctor-kpis, .check-row, .audio-hero, .audio-main, .audio-kpis, .audio-card, .searchbar, .search-hero, .search-main, .search-answer-layout, .search-retrieval, .search-index-grid, .search-metric-grid, .timeline-hero, .timeline-toolbar, .timeline-stats, .timeline-main, .timeline-event, .sources-hero, .source-kpis, .source-action-grid, .sources-main, .source-grid, .source-kind-row, .speakers-hero, .speaker-command-row, .speaker-filter-row, .speaker-review-toolbar, .speaker-sample-toolbar, .speaker-selection-grid, .speaker-bulk-actions, .speaker-bulk-row, .speaker-tool-row, .speakers-main, .speaker-grid, .files-hero, .file-kpis, .file-main, .file-toolbar, .file-card, .recycle-hero, .recycle-kpis, .recycle-main, .recycle-toolbar, .recycle-card, .recycle-actions, .mobile-hero, .mobile-kpis, .mobile-main, .mobile-toolbar, .mobile-event-card, .mobile-audio-grid, .mobile-actions, .sync-hero, .sync-kpis, .sync-main, .sync-toolbar, .sync-event-card, .sync-storage-grid, .sync-actions, .settings-hero, .settings-kpis, .settings-main, .settings-toolbar, .settings-group-grid, .settings-action-grid, .settings-row, .settings-edit-row, .maintenance-hero, .maintenance-kpis, .maintenance-main, .maintenance-action-grid { grid-template-columns: 1fr; }
-      .today-stats, .timeline-stats, .overview-kpis, .doctor-kpis, .audio-kpis, .source-kpis, .file-kpis, .sync-kpis, .settings-kpis, .maintenance-kpis, .action-kpis, .insight-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid.cols-4, .grid.cols-3, .grid.cols-2, .split, .reports-layout, .reports-metrics, .day-layout, .day-toolbar, .today-summary, .today-main, .today-stats, .action-hero, .action-main, .action-kpis, .action-toolbar, .insight-hero, .insight-main, .insight-kpis, .insight-toolbar, .overview-hero, .overview-main, .overview-kpis, .doctor-hero, .doctor-main, .doctor-kpis, .check-row, .audio-hero, .audio-main, .audio-kpis, .audio-card, .searchbar, .search-hero, .search-main, .search-answer-layout, .search-retrieval, .search-index-grid, .search-metric-grid, .timeline-hero, .timeline-toolbar, .timeline-stats, .timeline-main, .timeline-event, .sources-hero, .source-kpis, .source-action-grid, .sources-main, .source-grid, .source-kind-row, .speakers-hero, .speaker-command-row, .speaker-filter-row, .speaker-review-toolbar, .speaker-sample-toolbar, .speaker-selection-grid, .speaker-bulk-actions, .speaker-bulk-row, .speaker-tool-row, .speakers-main, .speaker-grid, .files-hero, .file-kpis, .file-main, .file-toolbar, .file-card, .recycle-hero, .recycle-kpis, .recycle-main, .recycle-toolbar, .recycle-card, .recycle-actions, .mobile-hero, .mobile-kpis, .mobile-main, .mobile-toolbar, .mobile-event-card, .mobile-audio-grid, .mobile-actions, .sync-hero, .sync-kpis, .sync-main, .sync-toolbar, .sync-event-card, .sync-storage-grid, .sync-actions, .setup-hero, .setup-kpis, .setup-main, .setup-step, .setup-service, .setup-actions, .setup-url-row, .settings-hero, .settings-kpis, .settings-main, .settings-toolbar, .settings-group-grid, .settings-action-grid, .settings-row, .settings-edit-row, .maintenance-hero, .maintenance-kpis, .maintenance-main, .maintenance-action-grid { grid-template-columns: 1fr; }
+      .today-stats, .timeline-stats, .overview-kpis, .doctor-kpis, .audio-kpis, .source-kpis, .file-kpis, .sync-kpis, .setup-kpis, .settings-kpis, .maintenance-kpis, .action-kpis, .insight-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .action-kpi { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
       .action-kpi:nth-child(2n) { border-right: 0; }
       .action-kpi:nth-last-child(-n+2) { border-bottom: 0; }
@@ -3589,7 +3801,7 @@ const sections = [
   ['today','今天'], ['action','行动'], ['suggestions','行动建议'], ['projects','项目'], ['search','搜索问答'],
   ['audio','音频队列'], ['speakers','说话人'],
   ['files','文件'], ['sources','来源'], ['reports','报告'],
-  ['sync','手机同步'], ['doctor','Doctor'], ['settings','设置']
+  ['setup','设置向导'], ['sync','手机同步'], ['doctor','Doctor'], ['settings','设置']
 ];
 const utilitySections = [
   ['overview','总览'], ['timeline','时间线'], ['recycle','回收箱'], ['maintenance','记录维护']
@@ -3599,11 +3811,11 @@ const sectionGroups = {
   today:'日常', action:'日常', suggestions:'日常', projects:'日常', search:'日常',
   audio:'音频', speakers:'音频',
   files:'资料', sources:'资料', reports:'资料',
-  sync:'系统', doctor:'系统', settings:'系统',
+  setup:'系统', sync:'系统', doctor:'系统', settings:'系统',
   overview:'低频维护工具', timeline:'低频维护工具', recycle:'低频维护工具', maintenance:'低频维护工具'
 };
 const navParents = {overview:'today', timeline:'today', recycle:'files', maintenance:'settings'};
-const state = { section: 'today', actionDate: 'today', actionView: 'repairs', suggestionDate: 'today', suggestionStatus: 'active', suggestionPriority: 'all', suggestionSource: 'all', suggestionQ: '', projectDate: 'today', projectStatus: 'active', projectSource: 'all', projectQ: '', reportPath: '', reportQ: '', reportCategory: 'all', audioStatus: '', sourceView: 'all', speakerView: 'active', speakerQ: '', speakerSort: 'review', speakerSelectedIds: [], speakerShownIds: [], speakerBulkTarget: '', speakerSamplesFor: 'visible', speakerSampleView: 'all', speakerSampleQ: '', speakerSampleSort: 'needs_work', speakerContextSource: 'idle', speakerSamples: [], fileView: 'all', fileQ: '', recycleView: 'all', recycleQ: '', syncView: 'all', syncQ: '', settingsGroup: 'collectors', settingsQ: '', timelineDate: 'today', timelineQ: '', timelineSource: 'all', timelineType: 'all', todayDate: 'today', todayQ: '', todayFrom: '', todayTo: '', todayCategory: 'all', doctorStatus: 'all', doctorArea: 'all', searchQ: '', searchSource: '', searchQuestion: '' };
+const state = { section: 'today', setupToken: '', actionDate: 'today', actionView: 'repairs', suggestionDate: 'today', suggestionStatus: 'active', suggestionPriority: 'all', suggestionSource: 'all', suggestionQ: '', projectDate: 'today', projectStatus: 'active', projectSource: 'all', projectQ: '', reportPath: '', reportQ: '', reportCategory: 'all', audioStatus: '', sourceView: 'all', speakerView: 'active', speakerQ: '', speakerSort: 'review', speakerSelectedIds: [], speakerShownIds: [], speakerBulkTarget: '', speakerSamplesFor: 'visible', speakerSampleView: 'all', speakerSampleQ: '', speakerSampleSort: 'needs_work', speakerContextSource: 'idle', speakerSamples: [], fileView: 'all', fileQ: '', recycleView: 'all', recycleQ: '', syncView: 'all', syncQ: '', settingsGroup: 'collectors', settingsQ: '', timelineDate: 'today', timelineQ: '', timelineSource: 'all', timelineType: 'all', todayDate: 'today', todayQ: '', todayFrom: '', todayTo: '', todayCategory: 'all', doctorStatus: 'all', doctorArea: 'all', searchQ: '', searchSource: '', searchQuestion: '' };
 const searchSources = [['','全部来源'], ['mobile','mobile'], ['local_ai','local_ai'], ['report','report'], ['filesystem','filesystem'], ['browser','browser'], ['apple_mail','apple_mail']];
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -3626,6 +3838,7 @@ const sectionTips = {
   files: '查看文件监控路径、分析状态，并手动扫描新文件。',
   recycle: '查看分析后暂存的回收文件，预览清理或恢复文件。',
   mobile: '已整合到手机同步页。',
+  setup: '按当前机器状态完成首次配置、手机同步 token、Mac 服务和 iPhone 连接地址。',
   sync: '查看 Mac/手机连接、上传缓存、导入缓存、音频分析、去重和清理预览。',
   maintenance: '统一预览和执行数据库记录、运行日志、缓存和回收箱清理。',
   settings: '查看当前解析后的配置，敏感字段会被隐藏。'
@@ -3666,6 +3879,11 @@ const labelTips = {
   '写入长期记忆': '把这条反馈保存到数据库、反馈摘要和本地检索资料里。',
   '采集并写报告': '采集今天的数据并刷新今天报告。',
   '刷新今日报告': '基于已有数据重新生成今天报告。',
+  '生成新 token': '生成新的手机同步密钥并写入 config.json；旧 iPhone 配置需要同步更新。',
+  '安装全部服务': '依次安装并加载同步、后台采集和 dashboard 服务。',
+  '复制': '复制这一项到剪贴板。',
+  '复制 token': '复制刚生成的新 token。',
+  '复制 URL': '复制这个 Mac 同步地址。',
   'Run checks': '重新运行 Doctor 诊断。',
   'Run 5': '从音频队列中处理最多 5 条。',
   'Run 20': '从音频队列中处理最多 20 条。',
@@ -4291,6 +4509,7 @@ function projectCategoryBreakdown(rows){
   return `<div class="insight-breakdown" style="margin-top:12px">${entries.map(([key,value]) => `<div class="insight-state-row"><span>${esc(categoryLabel(key))}</span><span class="queue-value">${esc(value)}</span></div>`).join('')}</div>`;
 }
 async function render(){
+  if(state.section==='setup') return setup();
   if(state.section==='action') return actionCenter();
   if(state.section==='suggestions') return suggestionInbox();
   if(state.section==='projects') return projectsWorkbench();
@@ -4308,6 +4527,137 @@ async function render(){
   if(state.section==='sync') return sync();
   if(state.section==='maintenance') return maintenance();
   if(state.section==='settings') return settings();
+}
+async function setup(){
+  setHeader('设置向导','读取中...',
+    `<button class="btn primary" onclick="setup()">刷新状态</button><button class="btn" onclick="go('sync')">手机同步</button><button class="btn" onclick="go('doctor')">Doctor</button><button class="btn" onclick="go('settings')">设置</button>`);
+  const j = await api('/api/setup');
+  const summary = j.summary || {};
+  const syncInfo = j.sync || {};
+  const cfg = j.config || {};
+  $('subtitle').textContent = `${summary.complete || 0}/${summary.total || 0} 完成 · ${summary.percent || 0}% · ${j.generated_at || ''}`;
+  $('view').innerHTML = `
+    <div class="setup-hero">
+      <section class="card">
+        <div class="section-title"><h3>首次配置进度</h3>${status(summary.ready ? 'ok' : 'warn')}</div>
+        <div class="setup-kpis">
+          ${setupKpi('完成度', `${summary.percent || 0}%`, `${summary.complete || 0}/${summary.total || 0} steps`)}
+          ${setupKpi('Token', syncInfo.token_configured ? '已配置' : '未配置', 'iPhone sync')}
+          ${setupKpi('Sync Port', syncInfo.port || '-', syncInfo.host || '-')}
+          ${setupKpi('Records', ((cfg.counts || {}).observations || 0), 'observations')}
+        </div>
+        <div class="setup-progress"><span style="width:${Math.max(0, Math.min(100, Number(summary.percent || 0)))}%"></span></div>
+      </section>
+      <section class="card">
+        <div class="section-title"><h3>快捷操作</h3><span class="muted">setup</span></div>
+        <div class="setup-actions">
+          <button class="btn primary" onclick="setupGenerateToken()">生成新 token</button>
+          <button class="btn" onclick="setupInstallAll()">安装全部服务</button>
+          <button class="btn" onclick="action('install_sync_agent',{load:true})">安装同步服务</button>
+          <button class="btn" onclick="action('install_agent',{load:true})">安装采集 Agent</button>
+          <button class="btn" onclick="action('install_dashboard_agent',{load:true})">安装 Dashboard</button>
+          <button class="btn" onclick="go('doctor')">查看诊断</button>
+        </div>
+      </section>
+    </div>
+    <div class="setup-main">
+      <div class="setup-stack">
+        <section class="card">
+          <div class="section-title"><h3>检查清单</h3><span class="muted">${esc(summary.complete || 0)} ready</span></div>
+          ${setupStepList(j.steps || [])}
+        </section>
+        <section class="card">
+          <div class="section-title"><h3>iPhone 连接</h3><span class="muted">Mac sync URL</span></div>
+          ${setupUrlList(syncInfo.upload_urls || [])}
+          ${setupTokenPanel(syncInfo)}
+        </section>
+      </div>
+      <aside class="setup-side">
+        <section class="card">
+          <div class="section-title"><h3>Mac 服务</h3><span class="muted">LaunchAgent</span></div>
+          ${setupServiceList(j.services || [])}
+        </section>
+        <section class="card">
+          <div class="section-title"><h3>本机路径</h3><span class="muted">${esc(cfg.timezone || '')}</span></div>
+          <div class="settings-row-list">
+            <div class="settings-row"><div class="label">config</div><div class="value">${esc(cfg.path || '')}</div></div>
+            <div class="settings-row"><div class="label">database</div><div class="value">${esc(cfg.database || '')}</div></div>
+            <div class="settings-row"><div class="label">data</div><div class="value">${esc(cfg.data_dir || '')}</div></div>
+            <div class="settings-row"><div class="label">health</div><div class="value">${esc(syncInfo.health_url || '')}</div></div>
+          </div>
+        </section>
+      </aside>
+    </div>`;
+}
+function setupKpi(label, value, hint){
+  return `<div class="setup-kpi"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div><div class="hint">${esc(hint || '')}</div></div>`;
+}
+function setupStepList(rows){
+  if(!(rows || []).length) return '<div class="empty-state">没有检查项</div>';
+  return `<div class="setup-step-list">${rows.map(item => `<div class="setup-step">
+    <div>${status(item.status || (item.ok ? 'ok' : 'warn'))}</div>
+    <div><div class="setup-title">${esc(item.title || item.key)}</div><div class="setup-detail">${esc(item.detail || '')}</div></div>
+    ${item.ok ? '<span class="muted">ready</span>' : '<span class="muted">todo</span>'}
+  </div>`).join('')}</div>`;
+}
+function setupServiceList(rows){
+  if(!(rows || []).length) return '<div class="empty-state">没有服务状态</div>';
+  return `<div class="setup-service-list">${rows.map(row => `<div class="setup-service">
+    <div>${status(row.status || 'warn')}</div>
+    <div><div class="setup-title">${esc(row.title || row.key)}</div><div class="setup-detail">${esc(row.label || '')}<br>${esc(row.path || '')}<br>${esc(row.installed ? 'installed' : 'missing')}, ${esc(row.state || '')}</div></div>
+    <button class="btn" onclick="action('${escAttr(row.action)}',{load:true})">安装</button>
+  </div>`).join('')}</div>`;
+}
+function setupUrlList(rows){
+  if(!(rows || []).length) return '<div class="empty-state">没有可用 URL；请确认同步端口配置。</div>';
+  return `<div class="setup-url-list">${rows.map(row => `<div class="setup-url-row">
+    <div class="muted">${esc(row.label || 'URL')}</div>
+    <div class="setup-url">${esc(row.url || '')}</div>
+    <button class="btn" data-copy="${escAttr(row.url || '')}" onclick="copyFromButton(this,'URL')">复制 URL</button>
+  </div>`).join('')}</div>`;
+}
+function setupTokenPanel(syncInfo){
+  const token = state.setupToken || '';
+  return `<div class="setup-token-box" style="margin-top:12px">
+    <div class="section-title"><h3>同步 Token</h3>${status(syncInfo.token_configured ? 'ok' : 'warn')}</div>
+    ${token ? `<div class="setup-token-value">${esc(token)}</div><div class="setup-actions"><button class="btn primary" data-copy="${escAttr(token)}" onclick="copyFromButton(this,'token')">复制 token</button><button class="btn" onclick="state.setupToken=''; setup()">隐藏 token</button></div>` : `<div class="setup-detail">${syncInfo.token_configured ? '已有 token。为了安全，现有 token 不会明文显示；需要配置新手机时可以生成一个新的。' : '还没有 token。先生成 token，再把 URL 和 token 填到 iPhone 的 Wond 设置里。'}</div><button class="btn primary" onclick="setupGenerateToken()">生成新 token</button>`}
+  </div>`;
+}
+async function setupGenerateToken(){
+  const j = await api('/api/setup-token',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+  state.setupToken = j.token || '';
+  toast(state.setupToken ? '已生成并保存新 token' : 'token 生成失败');
+  await setup();
+}
+async function setupInstallAll(){
+  const actions = [
+    ['install_sync_agent', {load:true}],
+    ['install_agent', {load:true}],
+    ['install_dashboard_agent', {load:true}],
+  ];
+  for(const [name, args] of actions){
+    await action(name, args);
+  }
+  setup();
+}
+async function copyFromButton(button, label){
+  await copyText(button.dataset.copy || '');
+  toast(`已复制 ${label || ''}`);
+}
+async function copyText(text){
+  if(!text) return;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const input = document.createElement('textarea');
+  input.value = text;
+  input.style.position = 'fixed';
+  input.style.opacity = '0';
+  document.body.appendChild(input);
+  input.select();
+  document.execCommand('copy');
+  document.body.removeChild(input);
 }
 async function today(){
   setHeader('今天','读取中...',

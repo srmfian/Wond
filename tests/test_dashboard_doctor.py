@@ -17,6 +17,8 @@ from wond.dashboard import (
     action_speaker_merge_many,
     action_speaker_refresh_sample_confidence,
     action_speaker_unhide,
+    api_setup,
+    api_setup_token,
     api_settings_update,
     data_quality_checks,
     http_check,
@@ -99,6 +101,56 @@ class DashboardDoctorTests(unittest.TestCase):
         self.assertIn("function canonicalSection", DASHBOARD_HTML)
         self.assertIn("id === 'mobile' ? 'sync'", DASHBOARD_HTML)
         self.assertNotIn("['mobile','手机状态']", DASHBOARD_HTML)
+
+    def test_dashboard_has_setup_wizard(self):
+        self.assertIn("['setup','设置向导']", DASHBOARD_HTML)
+        self.assertIn("/api/setup", DASHBOARD_HTML)
+        self.assertIn("async function setup", DASHBOARD_HTML)
+        self.assertIn("setupGenerateToken", DASHBOARD_HTML)
+        self.assertIn("安装全部服务", DASHBOARD_HTML)
+        self.assertIn("copyFromButton", DASHBOARD_HTML)
+
+    def test_setup_payload_reports_config_token_and_services(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "data_dir": "data",
+                        "timezone": "Asia/Tokyo",
+                        "mobile_sync": {"token": "secret-token", "port": 9876},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            settings = load_settings(config_path)
+
+            payload = api_setup(settings)
+
+            self.assertTrue(payload["ok"])
+            self.assertTrue(payload["sync"]["token_configured"])
+            self.assertEqual(payload["sync"]["port"], 9876)
+            self.assertIn("summary", payload)
+            self.assertIn("services", payload)
+            self.assertTrue(any(row["key"] == "sync" for row in payload["services"]))
+            self.assertTrue(any(row["url"].endswith(":9876/upload") for row in payload["sync"]["upload_urls"]))
+
+    def test_setup_token_generation_writes_config_and_returns_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "config.json"
+            config_path.write_text(
+                json.dumps({"data_dir": "data", "timezone": "Asia/Tokyo", "mobile_sync": {"port": 8765}}),
+                encoding="utf-8",
+            )
+            settings = load_settings(config_path)
+
+            payload, status = api_setup_token(settings)
+
+            saved = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(status, HTTPStatus.OK)
+            self.assertTrue(payload["token"])
+            self.assertEqual(saved["mobile_sync"]["token"], payload["token"])
+            self.assertTrue(payload["sync"]["token_configured"])
 
     def test_dashboard_has_record_maintenance_tab(self):
         self.assertIn("['maintenance','记录维护']", DASHBOARD_HTML)
