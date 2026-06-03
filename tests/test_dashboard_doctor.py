@@ -355,12 +355,19 @@ class DashboardDoctorTests(unittest.TestCase):
 
     def test_dashboard_nav_is_grouped_and_low_frequency_pages_are_utilities(self):
         self.assertIn("const utilitySections", DASHBOARD_HTML)
+        self.assertIn("const childSections", DASHBOARD_HTML)
         self.assertIn("const sectionGroups", DASHBOARD_HTML)
         self.assertIn("const navParents", DASHBOARD_HTML)
+        self.assertIn("const sectionTabs", DASHBOARD_HTML)
+        self.assertIn("function sectionNav", DASHBOARD_HTML)
         self.assertIn("section: 'today'", DASHBOARD_HTML)
         self.assertIn("['today','今天']", DASHBOARD_HTML)
         self.assertIn("['recycle','回收箱']", DASHBOARD_HTML)
-        self.assertIn("maintenance:'settings'", DASHBOARD_HTML)
+        self.assertIn("inbox:'action'", DASHBOARD_HTML)
+        self.assertIn("memory:'projects'", DASHBOARD_HTML)
+        self.assertIn("'speaker-training':'audio'", DASHBOARD_HTML)
+        self.assertIn("privacy:'setup'", DASHBOARD_HTML)
+        self.assertIn("maintenance:'setup'", DASHBOARD_HTML)
         self.assertIn("低频维护工具", DASHBOARD_HTML)
 
     def test_speakers_tab_has_review_workflow_controls(self):

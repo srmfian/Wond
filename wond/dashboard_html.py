@@ -42,7 +42,9 @@ DASHBOARD_HTML = r"""<!doctype html>
     .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 18px; }
     h2 { margin: 0; font-size: 26px; letter-spacing: 0; }
     .subtitle { margin-top: 5px; color: var(--muted); }
-    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+    .toolbar { display: flex; flex: 1; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: center; }
+    .section-tabs { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-start; }
+    .toolbar .section-tabs { margin-right: auto; }
     .btn { border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 8px 11px; border-radius: 8px; cursor: pointer; box-shadow: 0 1px 0 rgba(16,24,40,.04); }
     .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
     .btn.danger { color: var(--fail); }
@@ -778,6 +780,7 @@ DASHBOARD_HTML = r"""<!doctype html>
       .topbar { display: grid; gap: 12px; margin-bottom: 12px; }
       h2 { font-size: 23px; }
       .toolbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+      .toolbar .section-tabs { grid-column: 1 / -1; margin-right: 0; }
       .toolbar .btn { width: 100%; }
       .card { padding: 12px; }
       .section-title { align-items: flex-start; flex-wrap: wrap; }
@@ -815,15 +818,18 @@ DASHBOARD_HTML = r"""<!doctype html>
 <div id="buttonTooltip" class="button-tooltip" role="tooltip"></div>
 <script>
 const sections = [
-  ['today','今天'], ['action','每日工作台'], ['inbox','Action Inbox'], ['projects','项目'], ['memory','项目记忆'], ['meeting','Meeting Mode'], ['search','搜索问答'],
-  ['audio','音频队列'], ['speaker-training','Speaker 训练'], ['speakers','说话人'],
-  ['files','文件'], ['sources','来源'], ['reports','报告'],
-  ['setup','设置向导'], ['privacy','隐私与保留'], ['sync','手机同步'], ['doctor','Doctor'], ['settings','设置']
+  ['today','今天'], ['action','每日工作台'], ['projects','项目'], ['audio','音频'], ['files','资料'], ['search','搜索问答'], ['setup','设置向导']
+];
+const childSections = [
+  ['inbox','Action Inbox'], ['memory','项目记忆'], ['meeting','Meeting Mode'],
+  ['speaker-training','Speaker 训练'], ['speakers','说话人'],
+  ['sources','来源'], ['reports','报告'],
+  ['privacy','隐私与保留'], ['sync','手机同步'], ['doctor','Doctor'], ['settings','设置']
 ];
 const utilitySections = [
   ['overview','总览'], ['timeline','时间线'], ['recycle','回收箱'], ['maintenance','记录维护']
 ];
-const allSections = [...sections, ...utilitySections];
+const allSections = [...sections, ...childSections, ...utilitySections];
 const sectionGroups = {
   today:'日常', action:'日常', inbox:'日常', projects:'日常', memory:'日常', meeting:'日常', search:'日常',
   audio:'音频', 'speaker-training':'音频', speakers:'音频',
@@ -831,7 +837,22 @@ const sectionGroups = {
   setup:'系统', privacy:'系统', sync:'系统', doctor:'系统', settings:'系统',
   overview:'低频维护工具', timeline:'低频维护工具', recycle:'低频维护工具', maintenance:'低频维护工具'
 };
-const navParents = {overview:'today', timeline:'today', suggestions:'inbox', recycle:'files', maintenance:'settings'};
+const navParents = {
+  overview:'today', timeline:'today',
+  inbox:'action', suggestions:'inbox',
+  memory:'projects', meeting:'projects',
+  'speaker-training':'audio', speakers:'audio',
+  sources:'files', reports:'files', recycle:'files',
+  privacy:'setup', sync:'setup', doctor:'setup', settings:'setup', maintenance:'setup'
+};
+const sectionTabs = {
+  today: [['today','今天'], ['timeline','时间线'], ['overview','总览']],
+  action: [['action','工作台'], ['inbox','Inbox']],
+  projects: [['projects','项目'], ['memory','记忆'], ['meeting','会议']],
+  audio: [['audio','队列'], ['speaker-training','训练'], ['speakers','说话人']],
+  files: [['files','文件'], ['sources','来源'], ['reports','报告'], ['recycle','回收箱']],
+  setup: [['setup','向导'], ['sync','同步'], ['privacy','隐私'], ['doctor','Doctor'], ['settings','设置'], ['maintenance','维护']]
+};
 const state = { section: 'today', setupToken: '', actionDate: 'today', actionView: 'inbox', inboxDate: 'today', inboxStatus: 'active', inboxPriority: 'all', inboxSource: 'all', inboxType: 'all', inboxQ: '', suggestionDate: 'today', suggestionStatus: 'active', suggestionPriority: 'all', suggestionSource: 'all', suggestionQ: '', projectDate: 'today', projectStatus: 'active', projectSource: 'all', projectQ: '', memoryDate: 'today', memoryStatus: 'active', memoryQ: '', meetingProjectId: '', meetingTitle: '', privacyView: 'all', reportPath: '', reportQ: '', reportCategory: 'all', audioStatus: '', speakerTrainingView: 'needs_work', sourceView: 'all', speakerView: 'active', speakerQ: '', speakerSort: 'review', speakerSelectedIds: [], speakerShownIds: [], speakerBulkTarget: '', speakerSamplesFor: 'visible', speakerSampleView: 'all', speakerSampleQ: '', speakerSampleSort: 'needs_work', speakerContextSource: 'idle', speakerSamples: [], fileView: 'all', fileQ: '', recycleView: 'all', recycleQ: '', syncView: 'all', syncQ: '', settingsGroup: 'collectors', settingsQ: '', timelineDate: 'today', timelineQ: '', timelineSource: 'all', timelineType: 'all', todayDate: 'today', todayQ: '', todayFrom: '', todayTo: '', todayCategory: 'all', doctorStatus: 'all', doctorArea: 'all', searchQ: '', searchSource: '', searchQuestion: '' };
 const searchSources = [['','全部来源'], ['mobile','mobile'], ['local_ai','local_ai'], ['report','report'], ['filesystem','filesystem'], ['browser','browser'], ['apple_mail','apple_mail']];
 const $ = (id) => document.getElementById(id);
@@ -971,7 +992,22 @@ function nav(){
     return `<button class="${active?'active':''}" onclick="go('${id}')">${esc(label)}</button>`;
   }).join('')}</div>`).join('');
 }
-function setHeader(title, subtitle='', buttons=''){ hideButtonTip(); $('title').textContent=title; $('subtitle').textContent=subtitle; $('toolbar').innerHTML=buttons; nav(); }
+function sectionNav(sectionId=state.section){
+  const parent = navParents[sectionId] || sectionId;
+  const tabs = sectionTabs[parent] || [];
+  if(!tabs.length) return '';
+  return `<div class="section-tabs">${tabs.map(([id,label]) => {
+    const active = state.section === id;
+    return `<button class="filter-pill ${active?'active':''}" onclick="go('${id}')">${esc(label)}</button>`;
+  }).join('')}</div>`;
+}
+function setHeader(title, subtitle='', buttons=''){
+  hideButtonTip();
+  $('title').textContent=title;
+  $('subtitle').textContent=subtitle;
+  $('toolbar').innerHTML=`${sectionNav()}${buttons}`;
+  nav();
+}
 async function action(name,args={}){ const j=await api('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,args})}); toast(`${j.ok?'OK':'FAILED'} ${name}\n${j.stdout || j.stderr || ''}`); render(); }
 async function go(id){ state.section=canonicalSection(id); history.replaceState(null,'','#'+state.section); render(); }
 function metrics(items){ return `<div class="grid cols-4">${items.map(x=>`<div class="card metric"><div class="label">${esc(x[0])}</div><div class="value">${esc(x[1])}</div><div class="hint">${esc(x[2]||'')}</div></div>`).join('')}</div>`; }
