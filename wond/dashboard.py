@@ -107,6 +107,7 @@ from .insights import (
 )
 from .observation_filters import visible_observations
 from .project_memory import meeting_mode_payload, meeting_mode_post, project_memory_payload, project_memory_post
+from .privacy import privacy_center_payload
 from .recycle_bin import list_recycle_bin, purge_recycle_bin, recycle_bin_config, recycle_bin_summary
 from .retention import run_retention
 from .speakers import (
@@ -204,6 +205,9 @@ def make_handler(settings: Settings):
                 return
             if parsed.path == "/api/meeting-mode":
                 self.send_json(meeting_mode_payload(request_settings, query(parsed)))
+                return
+            if parsed.path == "/api/privacy":
+                self.send_json(privacy_center_payload(request_settings, query(parsed)))
                 return
             if parsed.path == "/api/speaker-quality":
                 self.send_json(speaker_quality_payload(request_settings, query(parsed)))
@@ -3708,6 +3712,26 @@ DASHBOARD_HTML = r"""<!doctype html>
     .memory-body, .meeting-body { color: var(--muted); line-height: 1.5; margin-top: 7px; overflow-wrap: anywhere; word-break: break-word; }
     .memory-actions, .meeting-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
     .meeting-active { border-left-color: var(--accent); background: #fbfcfe; }
+    .privacy-hero, .privacy-main { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr); gap: 14px; align-items: start; margin-bottom: 14px; }
+    .privacy-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fbfcfe; }
+    .privacy-kpi { padding: 12px; border-right: 1px solid var(--line); min-width: 0; }
+    .privacy-kpi:last-child { border-right: 0; }
+    .privacy-kpi .label { color: var(--muted); font-size: 12px; font-weight: 700; }
+    .privacy-kpi .value { font-size: 24px; font-weight: 850; margin-top: 4px; overflow-wrap: anywhere; word-break: break-word; }
+    .privacy-kpi .hint { color: var(--muted); font-size: 12px; margin-top: 4px; overflow-wrap: anywhere; word-break: break-word; }
+    .privacy-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .privacy-source-list, .privacy-check-list, .privacy-storage-list { display: grid; gap: 9px; max-height: min(660px, calc(100vh - 220px)); overflow: auto; padding-right: 2px; }
+    .privacy-source-card { border: 1px solid var(--line); border-left: 4px solid #9aa4b2; border-radius: 8px; padding: 12px; background: var(--panel); min-width: 0; }
+    .privacy-source-card.high { border-left-color: #c2410c; }
+    .privacy-source-card.medium { border-left-color: #b7791f; }
+    .privacy-source-card.low { border-left-color: #2f855a; }
+    .privacy-source-card.disabled { opacity: .78; }
+    .privacy-row-head, .privacy-check-row, .privacy-storage-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-width: 0; }
+    .privacy-title { font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; word-break: break-word; }
+    .privacy-note { color: var(--muted); line-height: 1.45; margin-top: 5px; overflow-wrap: anywhere; word-break: break-word; }
+    .privacy-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .privacy-check-row, .privacy-storage-row { border-bottom: 1px solid var(--line); padding: 9px 0; }
+    .privacy-check-row:last-child, .privacy-storage-row:last-child { border-bottom: 0; }
     .evidence-item:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
     .today-main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start; margin-top: 14px; width: 100%; min-width: 0; max-width: 100%; overflow-x: hidden; }
     .today-main > *, .today-sidebar, .day-list, .day-section { min-width: 0; }
@@ -3773,8 +3797,8 @@ DASHBOARD_HTML = r"""<!doctype html>
       .app { grid-template-columns: 1fr; }
       aside { position: static; height: auto; }
       nav { grid-template-columns: repeat(2, minmax(0,1fr)); }
-      .grid.cols-4, .grid.cols-3, .grid.cols-2, .split, .reports-layout, .reports-metrics, .day-layout, .day-toolbar, .today-summary, .today-main, .today-stats, .action-hero, .action-main, .action-kpis, .action-toolbar, .insight-hero, .insight-main, .insight-kpis, .insight-toolbar, .inbox-toolbar, .overview-hero, .overview-main, .overview-kpis, .doctor-hero, .doctor-main, .doctor-kpis, .check-row, .audio-hero, .audio-main, .audio-kpis, .audio-card, .searchbar, .search-hero, .search-main, .search-answer-layout, .search-retrieval, .search-index-grid, .search-metric-grid, .timeline-hero, .timeline-toolbar, .timeline-stats, .timeline-main, .timeline-event, .sources-hero, .source-kpis, .source-action-grid, .sources-main, .source-grid, .source-kind-row, .speakers-hero, .speaker-command-row, .speaker-filter-row, .speaker-review-toolbar, .speaker-sample-toolbar, .speaker-selection-grid, .speaker-bulk-actions, .speaker-bulk-row, .speaker-tool-row, .speakers-main, .speaker-grid, .files-hero, .file-kpis, .file-main, .file-toolbar, .file-card, .recycle-hero, .recycle-kpis, .recycle-main, .recycle-toolbar, .recycle-card, .recycle-actions, .mobile-hero, .mobile-kpis, .mobile-main, .mobile-toolbar, .mobile-event-card, .mobile-audio-grid, .mobile-actions, .sync-hero, .sync-kpis, .sync-main, .sync-toolbar, .sync-event-card, .sync-storage-grid, .sync-actions, .setup-hero, .setup-kpis, .setup-main, .setup-step, .setup-service, .setup-actions, .setup-url-row, .settings-hero, .settings-kpis, .settings-main, .settings-toolbar, .settings-group-grid, .settings-action-grid, .settings-row, .settings-edit-row, .maintenance-hero, .maintenance-kpis, .maintenance-main, .maintenance-action-grid { grid-template-columns: 1fr; }
-      .today-stats, .timeline-stats, .overview-kpis, .doctor-kpis, .audio-kpis, .source-kpis, .file-kpis, .sync-kpis, .setup-kpis, .settings-kpis, .maintenance-kpis, .action-kpis, .insight-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid.cols-4, .grid.cols-3, .grid.cols-2, .split, .reports-layout, .reports-metrics, .day-layout, .day-toolbar, .today-summary, .today-main, .today-stats, .action-hero, .action-main, .action-kpis, .action-toolbar, .insight-hero, .insight-main, .insight-kpis, .insight-toolbar, .inbox-toolbar, .overview-hero, .overview-main, .overview-kpis, .doctor-hero, .doctor-main, .doctor-kpis, .check-row, .audio-hero, .audio-main, .audio-kpis, .audio-card, .searchbar, .search-hero, .search-main, .search-answer-layout, .search-retrieval, .search-index-grid, .search-metric-grid, .timeline-hero, .timeline-toolbar, .timeline-stats, .timeline-main, .timeline-event, .sources-hero, .source-kpis, .source-action-grid, .sources-main, .source-grid, .source-kind-row, .speakers-hero, .speaker-command-row, .speaker-filter-row, .speaker-review-toolbar, .speaker-sample-toolbar, .speaker-selection-grid, .speaker-bulk-actions, .speaker-bulk-row, .speaker-tool-row, .speakers-main, .speaker-grid, .files-hero, .file-kpis, .file-main, .file-toolbar, .file-card, .recycle-hero, .recycle-kpis, .recycle-main, .recycle-toolbar, .recycle-card, .recycle-actions, .mobile-hero, .mobile-kpis, .mobile-main, .mobile-toolbar, .mobile-event-card, .mobile-audio-grid, .mobile-actions, .sync-hero, .sync-kpis, .sync-main, .sync-toolbar, .sync-event-card, .sync-storage-grid, .sync-actions, .setup-hero, .setup-kpis, .setup-main, .setup-step, .setup-service, .setup-url-row, .privacy-hero, .privacy-main, .privacy-kpis, .settings-hero, .settings-kpis, .settings-main, .settings-toolbar, .settings-group-grid, .settings-action-grid, .settings-row, .settings-edit-row, .maintenance-hero, .maintenance-kpis, .maintenance-main, .maintenance-action-grid { grid-template-columns: 1fr; }
+      .today-stats, .timeline-stats, .overview-kpis, .doctor-kpis, .audio-kpis, .source-kpis, .file-kpis, .sync-kpis, .setup-kpis, .privacy-kpis, .settings-kpis, .maintenance-kpis, .action-kpis, .insight-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .action-kpi { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
       .action-kpi:nth-child(2n) { border-right: 0; }
       .action-kpi:nth-last-child(-n+2) { border-bottom: 0; }
@@ -3804,7 +3828,7 @@ DASHBOARD_HTML = r"""<!doctype html>
       .report-reader { order: -1; min-height: 0; }
       .reports-nav { order: 0; }
       .reports-side { order: 1; }
-      .day-feed, .timeline-feed, .repair-list, .suggestion-list, .project-list, .quality-list, .highlight-list, .insight-list, .action-inbox-list, .memory-list, .meeting-list, .issue-list, .fix-list, .area-list, .speaker-grid, .speaker-match-list, .speaker-sample-list, .audio-list, .file-list, .sync-event-list, .source-grid, .reports-list, .check-list, .report-reader-content, .settings-group-grid, .settings-edit-list {
+      .day-feed, .timeline-feed, .repair-list, .suggestion-list, .project-list, .quality-list, .highlight-list, .insight-list, .action-inbox-list, .memory-list, .meeting-list, .privacy-source-list, .privacy-check-list, .privacy-storage-list, .issue-list, .fix-list, .area-list, .speaker-grid, .speaker-match-list, .speaker-sample-list, .audio-list, .file-list, .sync-event-list, .source-grid, .reports-list, .check-list, .report-reader-content, .settings-group-grid, .settings-edit-list {
         max-height: 460px;
       }
       .speaker-match-list { max-height: 320px; }
@@ -3833,7 +3857,7 @@ const sections = [
   ['today','今天'], ['action','每日工作台'], ['inbox','Action Inbox'], ['projects','项目'], ['memory','项目记忆'], ['meeting','Meeting Mode'], ['search','搜索问答'],
   ['audio','音频队列'], ['speakers','说话人'],
   ['files','文件'], ['sources','来源'], ['reports','报告'],
-  ['setup','设置向导'], ['sync','手机同步'], ['doctor','Doctor'], ['settings','设置']
+  ['setup','设置向导'], ['privacy','隐私与保留'], ['sync','手机同步'], ['doctor','Doctor'], ['settings','设置']
 ];
 const utilitySections = [
   ['overview','总览'], ['timeline','时间线'], ['recycle','回收箱'], ['maintenance','记录维护']
@@ -3843,11 +3867,11 @@ const sectionGroups = {
   today:'日常', action:'日常', inbox:'日常', projects:'日常', memory:'日常', meeting:'日常', search:'日常',
   audio:'音频', speakers:'音频',
   files:'资料', sources:'资料', reports:'资料',
-  setup:'系统', sync:'系统', doctor:'系统', settings:'系统',
+  setup:'系统', privacy:'系统', sync:'系统', doctor:'系统', settings:'系统',
   overview:'低频维护工具', timeline:'低频维护工具', recycle:'低频维护工具', maintenance:'低频维护工具'
 };
 const navParents = {overview:'today', timeline:'today', suggestions:'inbox', recycle:'files', maintenance:'settings'};
-const state = { section: 'today', setupToken: '', actionDate: 'today', actionView: 'inbox', inboxDate: 'today', inboxStatus: 'active', inboxPriority: 'all', inboxSource: 'all', inboxType: 'all', inboxQ: '', suggestionDate: 'today', suggestionStatus: 'active', suggestionPriority: 'all', suggestionSource: 'all', suggestionQ: '', projectDate: 'today', projectStatus: 'active', projectSource: 'all', projectQ: '', memoryDate: 'today', memoryStatus: 'active', memoryQ: '', meetingProjectId: '', meetingTitle: '', reportPath: '', reportQ: '', reportCategory: 'all', audioStatus: '', sourceView: 'all', speakerView: 'active', speakerQ: '', speakerSort: 'review', speakerSelectedIds: [], speakerShownIds: [], speakerBulkTarget: '', speakerSamplesFor: 'visible', speakerSampleView: 'all', speakerSampleQ: '', speakerSampleSort: 'needs_work', speakerContextSource: 'idle', speakerSamples: [], fileView: 'all', fileQ: '', recycleView: 'all', recycleQ: '', syncView: 'all', syncQ: '', settingsGroup: 'collectors', settingsQ: '', timelineDate: 'today', timelineQ: '', timelineSource: 'all', timelineType: 'all', todayDate: 'today', todayQ: '', todayFrom: '', todayTo: '', todayCategory: 'all', doctorStatus: 'all', doctorArea: 'all', searchQ: '', searchSource: '', searchQuestion: '' };
+const state = { section: 'today', setupToken: '', actionDate: 'today', actionView: 'inbox', inboxDate: 'today', inboxStatus: 'active', inboxPriority: 'all', inboxSource: 'all', inboxType: 'all', inboxQ: '', suggestionDate: 'today', suggestionStatus: 'active', suggestionPriority: 'all', suggestionSource: 'all', suggestionQ: '', projectDate: 'today', projectStatus: 'active', projectSource: 'all', projectQ: '', memoryDate: 'today', memoryStatus: 'active', memoryQ: '', meetingProjectId: '', meetingTitle: '', privacyView: 'all', reportPath: '', reportQ: '', reportCategory: 'all', audioStatus: '', sourceView: 'all', speakerView: 'active', speakerQ: '', speakerSort: 'review', speakerSelectedIds: [], speakerShownIds: [], speakerBulkTarget: '', speakerSamplesFor: 'visible', speakerSampleView: 'all', speakerSampleQ: '', speakerSampleSort: 'needs_work', speakerContextSource: 'idle', speakerSamples: [], fileView: 'all', fileQ: '', recycleView: 'all', recycleQ: '', syncView: 'all', syncQ: '', settingsGroup: 'collectors', settingsQ: '', timelineDate: 'today', timelineQ: '', timelineSource: 'all', timelineType: 'all', todayDate: 'today', todayQ: '', todayFrom: '', todayTo: '', todayCategory: 'all', doctorStatus: 'all', doctorArea: 'all', searchQ: '', searchSource: '', searchQuestion: '' };
 const searchSources = [['','全部来源'], ['mobile','mobile'], ['local_ai','local_ai'], ['report','report'], ['filesystem','filesystem'], ['browser','browser'], ['apple_mail','apple_mail']];
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -3873,6 +3897,7 @@ const sectionTips = {
   recycle: '查看分析后暂存的回收文件，预览清理或恢复文件。',
   mobile: '已整合到手机同步页。',
   setup: '按当前机器状态完成首次配置、手机同步 token、Mac 服务和 iPhone 连接地址。',
+  privacy: '集中查看敏感来源、保留策略、缓存清理、发布边界和隐私风险。',
   sync: '查看 Mac/手机连接、上传缓存、导入缓存、音频分析、去重和清理预览。',
   maintenance: '统一预览和执行数据库记录、运行日志、缓存和回收箱清理。',
   settings: '查看当前解析后的配置，敏感字段会被隐藏。'
@@ -5025,6 +5050,7 @@ async function render(){
   if(state.section==='files') return files();
   if(state.section==='recycle') return recycle();
   if(state.section==='sync') return sync();
+  if(state.section==='privacy') return privacyCenter();
   if(state.section==='maintenance') return maintenance();
   if(state.section==='settings') return settings();
 }
@@ -7883,6 +7909,227 @@ function syncConfigPanel(config){
     ['Delete analyzed audio', formatBool(config.delete_audio_after_analysis)],
   ];
   return `<div class="sync-config-list">${rows.map(([label,value]) => `<div class="sync-row"><span>${esc(label)}</span><span class="queue-value">${esc(value)}</span></div>`).join('')}</div>`;
+}
+async function privacyCenter(){
+  const buttons = `<button class="btn" onclick="action('retention',{date:'today'})">保留预览</button><button class="btn danger" onclick="confirm('按保留策略删除旧记录、旧运行日志和旧详细报告？') && action('retention',{date:'today',apply:true})">执行保留</button><button class="btn" onclick="go('maintenance')">记录维护</button><button class="btn" onclick="go('settings')">设置</button><button class="btn primary" onclick="privacyCenter()">刷新</button>`;
+  setHeader('隐私与保留','读取中...', buttons);
+  const j = await api('/api/privacy');
+  const summary = j.summary || {};
+  const sources = j.sources || [];
+  const filteredSources = filterPrivacySources(sources);
+  const retention = j.retention || {};
+  const cleanup = j.cleanup || {};
+  $('subtitle').textContent = `${j.generated_at || ''} · ${summary.high_sensitivity_enabled || 0} high sources · ${summary.retention_candidate_rows || 0} retention rows`;
+  $('view').innerHTML = `
+    <div class="privacy-hero">
+      <section class="card">
+        <div class="section-title"><h3>隐私概览</h3><span class="muted">${esc(summary.local_only ? 'local-first' : 'external provider')}</span></div>
+        <div class="privacy-kpis">
+          ${privacyKpi('本地记录', summary.total_records || 0, 'observations / runs / feedback')}
+          ${privacyKpi('高敏开启', summary.high_sensitivity_enabled || 0, 'messages / mail / browser / audio')}
+          ${privacyKpi('保留候选', summary.retention_candidate_rows || 0, 'dry-run rows')}
+          ${privacyKpi('可清缓存', bytes(summary.cleanup_candidate_bytes || 0), 'mobile + recycle')}
+        </div>
+        <div class="privacy-toolbar">${privacyFilterPills(sources)}</div>
+      </section>
+      <section class="card">
+        <div class="section-title"><h3>快速控制</h3><span class="muted">${esc((j.checks || []).filter(row => row.status !== 'ok').length)} warnings</span></div>
+        <div class="overview-actions">
+          <button class="btn" onclick="privacyQuickRetention(30)">30 天保留</button>
+          <button class="btn" onclick="privacyQuickRetention(90)">90 天保留</button>
+          <button class="btn" onclick="privacyQuickRetention(180)">180 天保留</button>
+          <button class="btn" onclick="go('setup')">同步 token</button>
+          <button class="btn" onclick="go('recycle')">回收箱</button>
+          <button class="btn" onclick="go('sources')">来源详情</button>
+        </div>
+        ${privacyCheckList((j.checks || []).slice(0, 4))}
+      </section>
+    </div>
+    <div class="privacy-main">
+      <div style="display:grid;gap:14px;min-width:0">
+        <section class="card">
+          <div class="section-title"><h3>敏感来源</h3><span class="muted">${esc(filteredSources.length)} shown</span></div>
+          ${privacySourceList(filteredSources)}
+        </section>
+        <section class="card">
+          <div class="section-title"><h3>保留策略</h3><span class="muted">dry-run</span></div>
+          ${privacyRetentionPanel(retention)}
+        </section>
+      </div>
+      <aside style="display:grid;gap:14px;min-width:0">
+        <section class="card">
+          <div class="section-title"><h3>清理预览</h3><span class="muted">${esc(bytes(summary.cleanup_candidate_bytes || 0))}</span></div>
+          ${privacyCleanupPanel(cleanup)}
+        </section>
+        <section class="card">
+          <div class="section-title"><h3>发布边界</h3><span class="muted">git</span></div>
+          ${privacyPublicationPanel(j.publication || {})}
+        </section>
+        <section class="card">
+          <div class="section-title"><h3>数据占用</h3><span class="muted">${esc(bytes(((j.storage || {}).database || {}).size || 0))}</span></div>
+          ${privacyStoragePanel(j.storage || {})}
+        </section>
+      </aside>
+    </div>`;
+}
+function privacyKpi(label, value, hint){
+  return `<div class="privacy-kpi"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div><div class="hint">${esc(hint || '')}</div></div>`;
+}
+function privacyFilterPills(rows){
+  const counts = {
+    all: (rows || []).length,
+    high: (rows || []).filter(row => row.sensitivity === 'high').length,
+    enabled: (rows || []).filter(row => row.enabled).length,
+    text: (rows || []).filter(row => row.retains_text).length,
+    disabled: (rows || []).filter(row => !row.enabled).length,
+  };
+  const filters = [['all','全部'], ['high','高敏'], ['enabled','开启'], ['text','保留文本'], ['disabled','已关闭']];
+  return filters.map(([key,label]) => `<button class="filter-pill ${state.privacyView===key?'active':''}" onclick="setPrivacyView('${key}')">${esc(label)} <span class="chip-count">${esc(counts[key] || 0)}</span></button>`).join('');
+}
+function setPrivacyView(value){
+  state.privacyView = value || 'all';
+  privacyCenter();
+}
+function filterPrivacySources(rows){
+  const view = state.privacyView || 'all';
+  return (rows || []).filter(row => {
+    if(view === 'high') return row.sensitivity === 'high';
+    if(view === 'enabled') return row.enabled;
+    if(view === 'text') return row.retains_text;
+    if(view === 'disabled') return !row.enabled;
+    return true;
+  });
+}
+function privacySourceList(rows){
+  if(!(rows || []).length) return '<div class="empty-state">当前筛选没有来源</div>';
+  return `<div class="privacy-source-list">${rows.map(privacySourceCard).join('')}</div>`;
+}
+function privacySourceCard(row){
+  const toggle = row.setting ? `<button class="btn ${row.enabled?'danger':''}" data-setting="${escAttr(row.setting)}" data-value="${row.enabled ? 'false' : 'true'}" onclick="privacySetBool(this)">${row.enabled ? '关闭采集' : '开启采集'}</button>` : `<button class="btn" onclick="go('sync')">查看来源</button>`;
+  return `<article class="privacy-source-card ${esc(row.sensitivity || 'medium')} ${row.enabled?'':'disabled'}">
+    <div class="privacy-row-head">
+      <div>
+        <div class="privacy-title">${esc(row.label || row.id)}</div>
+        <div class="item-meta">${esc(row.source || '')}/${esc(row.kind || '')} · ${esc(row.setting || 'runtime source')}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${status(row.enabled ? 'on' : 'off')}${status(row.risk || row.sensitivity)}</div>
+    </div>
+    <div class="privacy-note">${esc(row.note || '')}</div>
+    <div class="project-keywords">
+      <span class="evidence-chip">${esc(row.count || 0)} records</span>
+      <span class="evidence-chip">${esc(row.body_rows || 0)} body rows</span>
+      <span class="evidence-chip">${esc(shortDateTime(row.last || '') || 'no latest')}</span>
+    </div>
+    <div class="privacy-actions">${toggle}<button class="btn" data-source="${escAttr(row.source || '')}" onclick="privacyOpenSource(this)">查来源</button></div>
+  </article>`;
+}
+function privacyOpenSource(button){
+  state.sourceView = privacySourceView(button.dataset.source || '');
+  go('sources');
+}
+function privacySourceView(source){
+  if(['messages','apple_mail'].includes(source)) return 'chat';
+  if(['mobile'].includes(source)) return 'device';
+  if(['calendar','reminders','browser','filesystem'].includes(source)) return 'local';
+  if(['local_ai','openai'].includes(source)) return 'ai';
+  return 'all';
+}
+async function privacySetBool(button){
+  const key = button.dataset.setting || '';
+  const value = button.dataset.value === 'true';
+  if(!key) return;
+  const j = await api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates:[{key,value}]})});
+  toast(`OK privacy setting\n${j.changed_count || 0} changed`);
+  privacyCenter();
+}
+async function privacyQuickRetention(days){
+  const value = Number(days || 180);
+  const updates = [
+    {key:'retention.raw_observations_days', value},
+    {key:'retention.activity_samples_days', value},
+    {key:'retention.detailed_reports_days', value},
+    {key:'retention.collector_runs_days', value},
+  ];
+  const j = await api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates})});
+  toast(`OK retention\n${j.changed_count || 0} changed`);
+  privacyCenter();
+}
+function privacyRetentionPanel(retention){
+  const config = retention.config || {};
+  const preview = retention.preview || {};
+  const rows = [
+    ['原始事件', 'retention.raw_observations_days', config.raw_observations_days ?? 180, `${preview.deleted_observations || 0} before ${preview.observation_cutoff || '-'}`],
+    ['App 样本', 'retention.activity_samples_days', config.activity_samples_days ?? 180, `${preview.deleted_activity_samples || 0} before ${preview.activity_cutoff || '-'}`],
+    ['详细报告', 'retention.detailed_reports_days', config.detailed_reports_days ?? 180, `${preview.deleted_reports || 0} before ${preview.reports_cutoff || '-'}`],
+    ['运行记录', 'retention.collector_runs_days', config.collector_runs_days ?? 45, `${preview.deleted_collector_runs || 0} before ${preview.collector_runs_cutoff || '-'}`],
+  ];
+  return `<div class="settings-edit-list">
+    ${rows.map(([label,key,value,hint]) => `<label class="settings-edit-row"><div class="settings-edit-label"><b>${esc(label)}</b><span>${esc(hint)}</span></div><div class="settings-edit-control"><input data-privacy-retention="${escAttr(key)}" type="number" min="1" max="3650" step="1" value="${escAttr(value)}"></div></label>`).join('')}
+    <div class="settings-edit-actions">
+      <button class="btn primary" onclick="savePrivacyRetention()">保存保留策略</button>
+      <button class="btn" onclick="action('retention',{date:'today'})">重新预览</button>
+      <button class="btn danger" onclick="confirm('按当前保留策略执行删除？') && action('retention',{date:'today',apply:true})">执行清理</button>
+    </div>
+    <details class="settings-json">
+      <summary>查看 dry-run 输出</summary>
+      <pre class="settings-pre">${esc((preview.lines || []).join('\\n') || 'No retention preview')}</pre>
+    </details>
+  </div>`;
+}
+async function savePrivacyRetention(){
+  const updates = Array.from(document.querySelectorAll('[data-privacy-retention]')).map(input => ({key: input.dataset.privacyRetention, value: input.value}));
+  const j = await api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates})});
+  toast(`OK retention\n${j.changed_count || 0} changed`);
+  privacyCenter();
+}
+function privacyCleanupPanel(cleanup){
+  const mobile = cleanup.mobile || {};
+  const recycle = cleanup.recycle || {};
+  const recycleSummary = recycle.summary || {};
+  const rows = [
+    ['移动缓存文件', mobile.deleted_files || 0, bytes(mobile.freed_bytes || 0)],
+    ['移动导入目录', mobile.deleted_dirs || 0, `${mobile.retained_import_dirs || 0} retained`],
+    ['回收箱条目', recycleSummary.files || 0, bytes(recycleSummary.total_bytes || 0)],
+    ['到期回收文件', recycle.deleted_files || 0, bytes(recycle.freed_bytes || 0)],
+  ];
+  return `<div class="maintenance-list">
+    ${rows.map(([label,value,hint]) => maintenanceLine(label, value, hint)).join('')}
+    <div class="privacy-actions">
+      <button class="btn" onclick="action('mobile_cleanup',{})">缓存预览</button>
+      <button class="btn danger" onclick="confirm('执行移动端缓存清理？') && action('mobile_cleanup',{apply:true})">执行缓存清理</button>
+      <button class="btn" onclick="action('recycle_purge',{})">回收箱预览</button>
+      <button class="btn danger" onclick="confirm('永久删除已到期的回收箱文件？') && action('recycle_purge',{apply:true})">清理回收箱</button>
+    </div>
+  </div>`;
+}
+function privacyCheckList(rows){
+  if(!(rows || []).length) return '<div class="empty-state">没有检查项</div>';
+  return `<div class="privacy-check-list">${rows.map(row => `<div class="privacy-check-row"><div><div class="privacy-title">${esc(row.title || row.id)}</div><div class="privacy-note">${esc(row.detail || '')}</div>${row.action?`<div class="item-meta">${esc(row.action)}</div>`:''}</div>${status(row.status || 'info')}</div>`).join('')}</div>`;
+}
+function privacyPublicationPanel(publication){
+  const tracked = publication.tracked_private_files || [];
+  const patterns = publication.ignored_patterns || [];
+  return `<div class="maintenance-list">
+    ${maintenanceLine('Gitignore', publication.gitignore_exists ? 'present' : 'missing', shortPath(publication.gitignore_path || ''))}
+    ${maintenanceLine('Tracked private', tracked.length, tracked.slice(0, 3).join(', ') || 'none')}
+    <div class="privacy-check-list">
+      ${patterns.map(item => `<div class="privacy-check-row"><div><div class="privacy-title">${esc(item.pattern)}</div><div class="privacy-note">${esc(item.present ? 'covered by .gitignore' : 'not found in .gitignore')}</div></div>${status(item.present ? 'ok' : 'warn')}</div>`).join('')}
+    </div>
+  </div>`;
+}
+function privacyStoragePanel(storage){
+  const db = storage.database || {};
+  const dirs = storage.directories || [];
+  const tables = storage.tables || {};
+  const topDirs = dirs.slice().sort((a,b) => Number(b.size || 0) - Number(a.size || 0)).slice(0, 8);
+  const tableRows = Object.entries(tables).filter(([,value]) => Number(value || 0) > 0).slice(0, 8);
+  return `<div>
+    <div class="privacy-storage-list">
+      <div class="privacy-storage-row"><div><div class="privacy-title">SQLite</div><div class="privacy-note">${esc(shortPath(db.path || ''))}</div></div><div class="queue-value">${esc(bytes(db.size || 0))}</div></div>
+      ${topDirs.map(dir => `<div class="privacy-storage-row"><div><div class="privacy-title">${esc(dir.name || '-')}</div><div class="privacy-note">${esc(shortPath(dir.path || ''))}</div></div><div class="queue-value">${esc(bytes(dir.size || 0))}</div></div>`).join('')}
+    </div>
+    <div class="settings-chip-row" style="margin-top:10px">${tableRows.map(([key,value]) => `<span class="settings-chip">${esc(key)}: ${esc(value)}</span>`).join('') || '<span class="settings-chip">no table rows</span>'}</div>
+  </div>`;
 }
 async function maintenance(){
   const buttons = `<button class="btn" onclick="action('retention',{date:'today'})">记录预览</button><button class="btn danger" onclick="confirm('按保留策略删除旧记录、旧运行日志和旧详细报告？') && action('retention',{date:'today',apply:true})">执行记录清理</button><button class="btn" onclick="action('mobile_cleanup',{})">缓存预览</button><button class="btn" onclick="action('recycle_purge',{})">回收箱预览</button><button class="btn primary" onclick="maintenance()">刷新</button>`;

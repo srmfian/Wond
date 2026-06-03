@@ -26,6 +26,7 @@ from wond.dashboard import (
     is_local_http_permission_error,
     ollama_check,
 )
+from wond.privacy import privacy_center_payload
 from wond.store import Observation, Store
 
 
@@ -127,6 +128,66 @@ class DashboardDoctorTests(unittest.TestCase):
         self.assertIn("async function projectMemory", DASHBOARD_HTML)
         self.assertIn("async function meetingMode", DASHBOARD_HTML)
         self.assertIn("写入项目记忆", DASHBOARD_HTML)
+
+    def test_dashboard_has_privacy_retention_center(self):
+        self.assertIn("['privacy','隐私与保留']", DASHBOARD_HTML)
+        self.assertIn("/api/privacy", DASHBOARD_HTML)
+        self.assertIn("async function privacyCenter", DASHBOARD_HTML)
+        self.assertIn("privacySetBool", DASHBOARD_HTML)
+        self.assertIn("privacyQuickRetention", DASHBOARD_HTML)
+        self.assertIn("执行保留", DASHBOARD_HTML)
+
+    def test_privacy_payload_reports_sensitive_sources_and_retention(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "data_dir": "data",
+                        "timezone": "Asia/Tokyo",
+                        "collectors": {"messages": True, "apple_mail": True},
+                        "retention": {"require_daily_summary_before_prune": False, "raw_observations_days": 30},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            settings = load_settings(config_path)
+            store = Store(settings.db_path)
+            try:
+                store.upsert_observations(
+                    [
+                        Observation(
+                            source="messages",
+                            kind="message",
+                            source_key="m1",
+                            observed_at="2025-01-01T09:00:00+09:00",
+                            title="private message text",
+                        ),
+                        Observation(
+                            source="apple_mail",
+                            kind="email",
+                            source_key="mail1",
+                            observed_at="2025-01-01T10:00:00+09:00",
+                            title="private subject",
+                            body="private body preview",
+                        ),
+                    ]
+                )
+            finally:
+                store.close()
+
+            payload = privacy_center_payload(settings, {})
+            by_id = {row["id"]: row for row in payload["sources"]}
+            checks = {row["id"]: row for row in payload["checks"]}
+
+            self.assertTrue(payload["ok"])
+            self.assertEqual(by_id["messages"]["count"], 1)
+            self.assertEqual(by_id["apple_mail"]["body_rows"], 1)
+            self.assertGreaterEqual(payload["summary"]["high_sensitivity_enabled"], 2)
+            self.assertIn("preview", payload["retention"])
+            self.assertIn("mobile", payload["cleanup"])
+            self.assertEqual(checks["mail_body_preview"]["status"], "warn")
+            self.assertIn("publication", payload)
 
     def test_insight_state_accepts_action_inbox_item_types(self):
         with tempfile.TemporaryDirectory() as tmp:
