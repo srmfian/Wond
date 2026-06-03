@@ -1,57 +1,57 @@
 # Wond
 
-Wond 是一个本机优先的个人上下文系统。它把 Mac 上的日常活动、文件内容、移动端录音、位置和照片/媒体分析写入本地 SQLite，然后生成日报、长期摘要、邮件 digest，并提供 dashboard、doctor 和同步服务来检查运行状态。
+Wond is a local-first personal context system. It writes daily Mac activity, file content, mobile recordings, locations, and photo/media analysis into a local SQLite database, then produces daily reports, long-term summaries, email digests, and operational views through the dashboard, doctor, and sync service.
 
-系统默认走本地 AI：文本/视觉模型通过 Ollama，语音转写通过 MLX Audio。OpenAI 相关配置仍然保留为可选后端，但当前主路径不依赖 OpenAI。
+Wond defaults to local AI. Text and vision models run through Ollama, and speech transcription runs through MLX Audio. OpenAI configuration is still available as an optional backend, but the primary path does not depend on OpenAI.
 
-## 主要能力
+## Main Capabilities
 
-- Mac 上下文采集：日历、提醒事项、浏览器历史、最近文件、前台应用、邮件元数据、照片/媒体线索等。
-- 文件与媒体分析：扫描配置目录中的新文件，分析文档、图片、音频和视频，并把结果写回数据库。
-- 音频处理：用本地 ASR 转写录音，生成摘要、speaker 线索和 `no_speech` 标记；可在处理成功后删除原始音频。
-- 移动端采集：iPhone 可以录音、打点、添加 quick tag、记录位置，并通过加密同步上传到 Mac；Apple Watch 录音支持已经移除，Watch target 只保留占位 companion。
-- 移动端问答：iPhone 可以通过 Wond sync server 调用本地搜索问答，答案和引用仍由 Mac 上的本地索引/模型生成。
-- 地址级位置：移动端不只记录经纬度，也会保存反向地理编码结果，例如街区、路名、门牌号、行政区、市、国家等字段。
-- 报告与检索：日报、长期摘要、邮件摘要、全文搜索索引和本地 dashboard。
-- 运行诊断：`doctor`、`status`、`dashboard` 和 sync server `/health` 用来检查当前运行状态。
+- Mac context capture: calendars, reminders, browser history, recent files, foreground apps, mail metadata, photo/media clues, and related signals.
+- File and media analysis: scans new files in configured directories, analyzes documents, images, audio, and video, and writes results back into the database.
+- Audio processing: transcribes recordings with local ASR, produces summaries, speaker clues, and `no_speech` markers, and can delete source audio after successful processing.
+- Mobile capture: iPhone can record audio, add bookmarks, create quick tags, record location, and upload encrypted sync packages to the Mac. Apple Watch recording support has been removed; the watchOS target now keeps only a placeholder companion.
+- Mobile Q&A: iPhone can call the Wond sync server for local search and question answering. Answers and citations are still generated from the Mac's local index and models.
+- Address-level location: mobile capture stores reverse-geocoded address fields, not just latitude and longitude.
+- Reports and search: daily reports, long-term summaries, email summaries, full-text search indexes, and a local dashboard.
+- Operational diagnostics: `doctor`, `status`, `dashboard`, and the sync server `/health` endpoint help inspect the current runtime state.
 
-## 快速开始
+## Quick Start
 
-### 一键安装包
+### Installer Package
 
-从 GitHub Release 下载 `Wond-0.3.0-macos.zip`，解压后双击 `install.command`。
+Download `Wond-0.3.0-macos.zip` from the GitHub release, unzip it, and double-click `install.command`.
 
-安装器会优先把 Wond 复制到 `/Applications/Wond`，创建专用 Python virtualenv，初始化 `config.json`，并可选择一次性加载 dashboard、sync server 和后台 monitor 的 LaunchAgent。如果这台 Mac 已经有旧版 `~/Applications/Wond` 安装，安装器会自动复用旧目录，并尽量在 `/Applications/Wond` 创建一个指向旧目录的入口；如果当前用户没有权限写入 `/Applications/Wond`，会回退到 `~/Applications/Wond`。重复安装会保留已有 `config.json`、`.venv/` 和 `data/`。
+The installer prefers `/Applications/Wond`, creates a private Python virtual environment, initializes `config.json`, and can optionally load LaunchAgents for the dashboard, sync server, and background monitor. If this Mac already has an older `~/Applications/Wond` install, the installer reuses that directory and tries to create an entry point at `/Applications/Wond`. If the current user cannot write to `/Applications/Wond`, it falls back to `~/Applications/Wond`. Reinstalling preserves the existing `config.json`, `.venv/`, and `data/`.
 
-如果需要指定安装目录：
+To choose a custom install directory:
 
 ```bash
 WOND_INSTALL_DIR=/path/to/Wond ./install.command
 ```
 
-安装后常用入口：
+Common commands after installation:
 
 - `/Applications/Wond/Start Wond Dashboard.command`
 - `/Applications/Wond/Install Wond Services.command`
 - `/Applications/Wond/Run Wond Doctor.command`
 
-如果安装器提示使用了旧目录或回退目录，上面的入口会在 `~/Applications/Wond/` 下。
+If the installer reports that it used a legacy or fallback directory, these commands will be under `~/Applications/Wond/` instead.
 
-### 更新包
+### Update Package
 
-已经安装过 Wond 的用户不需要重新跑完整安装包。从 GitHub Release 下载 `Wond-0.3.0-macos-update.zip`，解压后双击 `Update Wond.command`。
+Existing Wond users do not need to run the full installer again. Download `Wond-0.3.0-macos-update.zip` from the GitHub release, unzip it, and double-click `Update Wond.command`.
 
-更新包只替换 Wond 发布管理的应用文件和命令入口，并复用现有安装目录。它不会替换 `config.json`、`data/`、本地数据库、报告、移动端同步导入、speaker samples 或模型缓存。已有 `.venv` 会被复用；如果新版本依赖发生变化，更新过程可能会在这个虚拟环境里刷新依赖元数据。
+The update package replaces only Wond-managed application files and command entry points, while reusing the current install directory. It does not replace `config.json`, `data/`, local databases, reports, mobile sync imports, speaker samples, or model caches. The existing `.venv` is reused; if dependencies changed, the updater may refresh dependency metadata in that virtual environment.
 
-更新包会自动寻找 `/Applications/Wond` 和旧版 `~/Applications/Wond`。如果 Wond 不在这两个默认目录：
+The updater automatically checks `/Applications/Wond` and the older `~/Applications/Wond` location. If Wond is installed somewhere else:
 
 ```bash
 WOND_INSTALL_DIR=/path/to/Wond "./Update Wond.command"
 ```
 
-更新完成后，如果原来已经安装过 dashboard、sync server 或 monitor 的 LaunchAgent，更新包会自动重载这些服务。
+After the update finishes, any previously installed dashboard, sync server, or monitor LaunchAgents are automatically reloaded.
 
-### 源码运行
+### Run From Source
 
 ```bash
 python3 -m wond init
@@ -59,14 +59,14 @@ python3 -m wond collect
 python3 -m wond summarize
 ```
 
-基础安装声明了 dashboard、sync 加密和 SQLite 工作流需要的 Python 依赖。本地音频模型和 speaker 工具链是可选 extras：
+The base install declares the Python dependencies needed for the dashboard, sync encryption, and SQLite workflows. Local audio models and speaker tooling are optional extras:
 
 ```bash
 python3 -m pip install -e ".[local-audio,speaker]"
 python3 -m pip install -e ".[eval]"  # only for tools/evaluate_wespeaker_resnet34.py
 ```
 
-常用检查命令：
+Common health checks:
 
 ```bash
 python3 -m wond status
@@ -74,9 +74,9 @@ python3 -m wond doctor
 python3 -m wond dashboard --open
 ```
 
-`python3 -m wond` 是当前入口；旧项目名下的 Python module、LaunchAgent label 和移动端同步标识已移除。
+`python3 -m wond` is the current entry point. Python modules, LaunchAgent labels, and mobile sync identifiers under the old project name have been removed.
 
-常用后台服务：
+Common background service commands:
 
 ```bash
 python3 -m wond install-agent --load
@@ -85,48 +85,48 @@ python3 -m wond install-dashboard-agent --load
 python3 -m wond monitor --once
 ```
 
-同步服务也可以手动启动：
+The sync server can also be started manually:
 
 ```bash
 python3 -m wond sync-server
 ```
 
-默认 dashboard 地址是 `http://127.0.0.1:8787`，移动端同步服务默认监听 `0.0.0.0:8765`。推荐把 iPhone 到 Mac 的 sync 流量放在 Tailscale 私有 VPN 里，而不是把 `8765` 暴露到公网或做路由器端口转发。
+The default dashboard URL is `http://127.0.0.1:8787`, and the mobile sync service listens on `0.0.0.0:8765` by default. It is best to keep iPhone-to-Mac sync traffic inside a private Tailscale VPN instead of exposing `8765` to the public internet or forwarding it through a router.
 
-推荐的 iPhone sync URL：
+Recommended iPhone sync URL:
 
 ```text
 http://<mac-tailscale-ip-or-magicdns-name>:8765/upload
 ```
 
-例如：
+Examples:
 
 ```text
 http://100.x.y.z:8765/upload
 http://macbook-name.tailnet-name.ts.net:8765/upload
 ```
 
-同一 Wi-Fi/LAN 下也可以临时使用 `http://<mac-lan-ip>:8765/upload`，但长期使用建议走 Tailscale。`0.0.0.0` 绑定会让 sync server 接受 Tailscale 网卡上的连接；如果只想允许 Tailscale 访问，可以把 `mobile_sync.host` 改成 Mac 的 Tailscale IP。
+On the same Wi-Fi/LAN, `http://<mac-lan-ip>:8765/upload` can be used temporarily, but Tailscale is recommended for long-term use. Binding to `0.0.0.0` lets the sync server accept connections on the Tailscale interface. To allow only Tailscale access, set `mobile_sync.host` to the Mac's Tailscale IP.
 
-## 数据目录
+## Data Directory
 
-默认数据都在 `data/` 下：
+By default, Wond stores runtime data under `data/`:
 
-- `data/wond.sqlite3`：主数据库。
-- `data/reports/`：日报和移动端导入报告。
-- `data/summaries/`：长期摘要和 compact 输出。
-- `data/mobile_sync/inbox/`：移动端同步包落盘目录。
-- `data/mobile_sync/imports/`：解包后的移动端媒体与导入内容。
-- `data/file_analysis_workspace/`：用户目录文件分析前的工作副本区，原文件不会被移动。
-- `data/recycle_bin/`：移动端清理文件和文件分析工作副本会先进入回收区。
-- `data/speaker_samples/`：speaker review 保存的样本。
-- `data/search_index/`：全文搜索索引。
+- `data/wond.sqlite3`: main database.
+- `data/reports/`: daily reports and mobile import reports.
+- `data/summaries/`: long-term summaries and compact outputs.
+- `data/mobile_sync/inbox/`: landing directory for mobile sync packages.
+- `data/mobile_sync/imports/`: unpacked mobile media and imported content.
+- `data/file_analysis_workspace/`: working copies for user-directory file analysis; source files are not moved.
+- `data/recycle_bin/`: mobile cleanup files and file-analysis working copies go here before purge.
+- `data/speaker_samples/`: samples saved for speaker review.
+- `data/search_index/`: full-text search index.
 
-`config.json` 是当前机器的真实配置，`config.example.json` 是模板。提交或分享配置前请检查 token、邮箱地址、模型路径和本地目录。
+`config.json` is the real configuration for the current machine, while `config.example.json` is a template. Before committing or sharing configuration, check for tokens, email addresses, model paths, and local directories.
 
-## 配置重点
+## Configuration Highlights
 
-核心字段：
+Core fields:
 
 ```json
 {
@@ -149,7 +149,7 @@ http://macbook-name.tailnet-name.ts.net:8765/upload
 }
 ```
 
-本地 AI 常用字段：
+Common local AI fields:
 
 ```json
 {
@@ -175,7 +175,7 @@ http://macbook-name.tailnet-name.ts.net:8765/upload
 }
 ```
 
-音频预处理常用字段：
+Common audio preprocessing fields:
 
 ```json
 {
@@ -196,43 +196,45 @@ http://macbook-name.tailnet-name.ts.net:8765/upload
 }
 ```
 
-如果 Hugging Face / MLX 模型目录被移动到外置盘或做了重定向，要保证后台 LaunchAgent 运行时也能看到同一个路径。外置盘未挂载、`HF_HOME` 不一致或 symlink 失效时，音频分析可能会变慢、失败或重新下载模型。
-正文转写默认走较快的 `mlx_audio` / Qwen3 ASR；speaker 标注是独立的辅助阶段，优先用 `vibevoice_mlx` / `mlx-community/VibeVoice-ASR-4bit` 只给 speech window 打 Speaker 1 / Speaker 2 标签。VibeVoice 失败或超时时不会丢掉正文转写，只会让该条音频保留为待修复的 speaker 状态。
-ASR、diarization 和 speaker sample 会优先使用增强后的临时音频；原始音频仍保留作修复窗口和审计。多人重叠说话片段会被标记为 overlap，系统会优先用 SpeechBrain SepFormer 生成候选 stem，并通过音量、时长、削波等质量门控后才纳入 speaker matching；SepFormer 不可用时会降级到 `ffmpeg_bandpass`。默认不会只凭重叠候选创建全新说话人，避免污染声纹库；如果接入其他外部分离器，可以开启 `overlap_create_new_speakers` 或配置 `overlap_separation_command`。
+If Hugging Face or MLX model directories are moved to an external drive or redirected, make sure the background LaunchAgents can see the same paths. If the external drive is not mounted, `HF_HOME` differs, or a symlink is broken, audio analysis may slow down, fail, or download models again.
 
-## Dashboard 与 Doctor
+Main transcription defaults to the faster `mlx_audio` / Qwen3 ASR path. Speaker labeling is a separate helper stage that prefers `vibevoice_mlx` / `mlx-community/VibeVoice-ASR-4bit` to assign Speaker 1 / Speaker 2 labels to speech windows only. If VibeVoice fails or times out, the main transcript is preserved and the audio remains in a repairable speaker state.
 
-Dashboard 是日常查看入口：
+ASR, diarization, and speaker samples prefer enhanced temporary audio. Original audio is kept for repair windows and audit. Overlapping speech is marked as overlap; Wond first tries SpeechBrain SepFormer to generate candidate stems, then accepts them only after volume, duration, clipping, and other quality gates. If SepFormer is unavailable, Wond falls back to `ffmpeg_bandpass`. By default, overlap candidates do not create brand-new speakers by themselves, which avoids polluting the voice library. If you integrate another external separator, you can enable `overlap_create_new_speakers` or configure `overlap_separation_command`.
+
+## Dashboard And Doctor
+
+The dashboard is the daily operating surface:
 
 ```bash
 python3 -m wond dashboard --open
 python3 -m wond install-dashboard-agent --load
 ```
 
-它现在按主工作区组织：今天、每日工作台、项目、音频、资料、搜索问答和设置向导。Action Inbox、项目记忆、Meeting Mode、Speaker 训练、隐私与保留、手机同步、Doctor 和记录维护会作为对应工作区的子页保留，旧 hash 链接仍可直接打开。
+It is organized around the main workspaces: Today, Daily Workbench, Projects, Audio, Sources, Search, and Setup. Action Inbox, project memory, Meeting Mode, Speaker Training, Privacy & Retention, mobile sync, Doctor, and record maintenance remain as subpages under the relevant workspaces. Old hash links still open directly.
 
-Doctor 用于命令行诊断：
+Doctor is the command-line diagnostic entry point:
 
 ```bash
 python3 -m wond doctor
 ```
 
-它会检查 collector、sync server、本地 AI、音频工具、聊天来源和数据目录。若后台任务行为异常，先看：
+It checks collectors, sync server, local AI, audio tools, chat sources, and data directories. If background tasks behave unexpectedly, start with:
 
 ```bash
 python3 -m wond status
 python3 -m wond doctor
 ```
 
-## 文件、媒体与音频分析
+## File, Media, And Audio Analysis
 
-扫描新文件：
+Scan new files:
 
 ```bash
 python3 -m wond analyze-new-files
 ```
 
-处理已导入的移动端音频队列：
+Process imported mobile audio:
 
 ```bash
 python3 -m wond analyze-audio
@@ -240,15 +242,17 @@ python3 -m wond analyze-audio --date today --limit 20
 python3 -m wond analyze-audio --force
 ```
 
-分析图片、视频或其他媒体：
+Analyze an image, video, or other media file:
 
 ```bash
 python3 -m wond analyze-media /path/to/file
 ```
 
-自动新文件分析不会移动 `Desktop`、`Documents`、`Downloads` 等用户目录里的原文件；它会先复制到 `data/file_analysis_workspace/`，分析副本，之后只回收这个副本。只有 `data/mobile_sync/` 下的导入媒体在 `mobile_sync.delete_audio_after_analysis` 开启时允许清理原文件。回收区命令：
+Automatic new-file analysis does not move source files from user directories such as `Desktop`, `Documents`, or `Downloads`. It first copies a working file to `data/file_analysis_workspace/`, analyzes that copy, and later recycles only the copy. Imported media under `data/mobile_sync/` can delete the source file only when `mobile_sync.delete_audio_after_analysis` is enabled.
 
-移动端音频会先完成转写和 speaker 处理再删除原始文件。若转写出了 speech segment 但没有 speaker label，系统会写入 `speaker_processing.status=skipped_no_speaker_labels`，并按 `mobile_sync.delete_audio_after_analysis_repair_window_hours` 保留原始音频一段时间，方便之后用更好的 diarization 模型重跑或修复样本。
+Mobile audio is transcribed and processed for speaker labels before the source file is deleted. If transcription finds speech segments but no speaker labels, Wond records `speaker_processing.status=skipped_no_speaker_labels` and keeps the original audio for `mobile_sync.delete_audio_after_analysis_repair_window_hours`, so it can later be rerun with a better diarization model or used to repair samples.
+
+Recycle bin commands:
 
 ```bash
 python3 -m wond recycle-bin list
@@ -256,96 +260,96 @@ python3 -m wond recycle-bin restore <trash-path>
 python3 -m wond recycle-bin purge
 ```
 
-短录音、静音片段和无有效语音的片段会被标记为 `no_speech`。这不是错误；它表示 ASR 没有检测到可用文本。
+Short recordings, silent clips, and clips without useful speech are marked as `no_speech`. This is not an error; it means ASR did not detect usable text.
 
-## iPhone 采集与 Watch 占位
+## iPhone Capture And Watch Placeholder
 
-iOS 工程在 `ios/Wond/Wond.xcodeproj`。
+The iOS project is at `ios/Wond/Wond.xcodeproj`.
 
-当前实际采集入口是 iPhone app：
+The current capture entry point is the iPhone app:
 
-- iPhone 可以连续分段录音、打点、添加 quick tag、记录位置、查看同步状态，并用后台 URLSession 上传加密包。
-- iPhone 可以在 Ask 页面向 Mac 发起本地搜索问答请求，使用同一个 sync URL 和 token。
-- Quiet Hours / schedule 可以在夜间或指定时间自动停止 iPhone 录音，避免静默时间采集。
-- Watch app 目前只显示“Watch recording removed”，不再暴露录音、麦克风权限、后台 audio、WatchConnectivity 传输或 iPhone fallback 控制。
+- iPhone can record continuous segmented audio, add bookmarks, create quick tags, record location, show sync status, and upload encrypted packages with background URLSession.
+- iPhone can ask the Mac local search/Q&A service from the Ask page, using the same sync URL and token.
+- Quiet Hours / schedule can automatically stop iPhone recording at night or during configured times, avoiding capture during quiet periods.
+- The Watch app currently shows only "Watch recording removed". It no longer exposes recording, microphone permission, background audio, WatchConnectivity transfer, or iPhone fallback controls.
 
-移动端会导出这些事件类型：
+Mobile export contains these event types:
 
-- `audio_segment`：录音片段。
-- `bookmark`：用户打点。
-- `quick_tag`：重要、待办、想法、会议、忽略等快速标签。
-- `location_sample`：位置样本。
+- `audio_segment`: recorded audio segment.
+- `bookmark`: user bookmark.
+- `quick_tag`: quick labels such as important, to-do, idea, meeting, and ignore.
+- `location_sample`: location sample.
 
-### 位置与地址
+### Location And Address
 
-位置功能已经不只是经纬度。iPhone 会用 Core Location 获取坐标，并通过反向地理编码保存大致地址字段：
+Location capture is no longer just latitude and longitude. iPhone uses Core Location for coordinates and reverse geocoding for approximate address fields:
 
-- `address`：系统格式化后的地址。
-- `placeName`：地点名。
-- `country` / `isoCountryCode`：国家。
-- `administrativeArea` / `subAdministrativeArea`：都道府县、省、市等行政区。
-- `locality` / `subLocality`：市区町村、区、街区等。
-- `thoroughfare` / `subThoroughfare`：道路名和门牌号。
-- 经纬度、高度、精度、速度和方向仍会保留，方便后续排错或重新解析。
+- `address`: system-formatted address.
+- `placeName`: place name.
+- `country` / `isoCountryCode`: country.
+- `administrativeArea` / `subAdministrativeArea`: state, prefecture, province, city, or similar administrative area.
+- `locality` / `subLocality`: city, ward, neighborhood, district, or similar local area.
+- `thoroughfare` / `subThoroughfare`: street name and street number.
+- Latitude, longitude, altitude, accuracy, speed, and course are still preserved for troubleshooting or later reprocessing.
 
-所以在日本可能会显示类似“六本木 1 丁目 2 番 11 号”的区域信息，在中国也可以记录到“XX 市 XX 区 XX 路 XX 号”这类地址层级。实际粒度取决于 iOS 定位权限、网络、地图数据和当前位置。
+For example, in Japan this may capture neighborhood and block-level information such as Roppongi 1-chome, while in other countries it may capture city, district, street, and street number fields. Actual granularity depends on iOS location permission, network access, map data, and the current position.
 
-如果 iPhone 端 Location 区域显示 `kCLErrorDomain error 1`，通常是定位权限被拒绝。请在 iOS 设置里允许 Wond 使用定位；如果需要后台或连续记录，建议允许更高等级的位置权限。
+If the iPhone Location area shows `kCLErrorDomain error 1`, location permission is usually denied. Allow Wond to use location in iOS Settings. For background or continuous recording, grant a higher level of location permission.
 
-## 移动端加密同步
+## Encrypted Mobile Sync
 
-Mac 端启动同步服务：
+Start the sync service on the Mac:
 
 ```bash
 python3 -m wond sync-server
 ```
 
-推荐先在 Mac 和 iPhone 上安装 Tailscale，并让它们加入同一个 tailnet。然后在 iPhone app 设置里填写 Mac 的 Tailscale 地址：
+Install Tailscale on both Mac and iPhone first, and join them to the same tailnet. Then enter the Mac's Tailscale address in the iPhone app settings:
 
 ```text
 http://<mac-tailscale-ip-or-magicdns-name>:8765/upload
 ```
 
-LAN 地址 `http://<mac-lan-ip>:8765/upload` 只建议作为同一 Wi-Fi 下的 fallback。不要把 `8765` 端口直接暴露到公网；即使 sync 包有 AES-GCM 加密和 HMAC token，公网暴露仍然会扩大攻击面。若需要通过蜂窝网络同步，请确认 Tailscale 已连接，并关闭 iPhone app 里的 Wi-Fi-only sync。
+Use a LAN address such as `http://<mac-lan-ip>:8765/upload` only as a same-Wi-Fi fallback. Do not expose port `8765` directly to the public internet. Even though sync packages use AES-GCM encryption and HMAC tokens, public exposure still increases the attack surface. To sync over cellular, make sure Tailscale is connected and turn off Wi-Fi-only sync in the iPhone app.
 
-移动端同步使用：
+Mobile sync uses:
 
-- AES-GCM 加密 `.pcsync` 包。
-- PBKDF2-HMAC-SHA256 派生密钥。
-- HMAC 请求认证。
-- `/ask` 问答接口复用同一套 HMAC token，请求在 Mac 上完成检索和本地模型回答。
-- per-event fingerprint 去重。
-- background URLSession，允许 iPhone app 进入后台后继续完成上传。
+- AES-GCM encrypted `.pcsync` packages.
+- PBKDF2-HMAC-SHA256 key derivation.
+- HMAC request authentication.
+- The `/ask` Q&A endpoint reuses the same HMAC token; retrieval and local model answering happen on the Mac.
+- Per-event fingerprint deduplication.
+- Background URLSession, so the iPhone app can finish uploads after moving to the background.
 
-Mac 端导入命令：
+Mac import command:
 
 ```bash
 python3 -m wond ingest-mobile data/mobile_sync/imports/<id>/mobile-export.json
 ```
 
-或由 sync server 自动导入。`skip_existing_uploads` 与 event fingerprint 会避免重复导入已经接受过的事件；如果只新增了少量录音或位置样本，新的事件仍会被上传和导入。
+The sync server can also import automatically. `skip_existing_uploads` and event fingerprints prevent accepted events from being imported twice. If only a few new recordings or location samples were added, those new events are still uploaded and imported.
 
-清理移动端同步缓存：
+Clean mobile sync cache:
 
 ```bash
 python3 -m wond mobile-sync-cleanup
 ```
 
-## Apple Watch 状态
+## Apple Watch Status
 
-Apple Watch 录音支持已经移除。仓库里仍保留 watchOS target，是为了让已有配对安装可以更新到一个安全的占位 companion；它不再请求麦克风权限，也不再处理后台录音、WatchConnectivity 音频传输或 iPhone fallback。
+Apple Watch recording support has been removed. The repository still includes the watchOS target so existing paired installs can update to a safe placeholder companion. It no longer asks for microphone permission or handles background recording, WatchConnectivity audio transfer, or iPhone fallback.
 
-如果已经安装过 Watch app，重新安装 iPhone app 后，配对 Watch 上应只看到录音已移除的提示。需要采集音频时，请使用 iPhone app。
+If the Watch app is already installed, reinstalling the iPhone app should leave the paired Watch showing only the recording-removed message. Use the iPhone app when audio capture is needed.
 
 ## Speaker Review
 
-查看 speaker：
+List speakers:
 
 ```bash
 python3 -m wond speakers list
 ```
 
-review、重命名、合并和样本检查：
+Review, rename, merge, and inspect samples:
 
 ```bash
 python3 -m wond speakers review
@@ -357,7 +361,7 @@ python3 -m wond speakers matches <speaker-id>
 python3 -m wond speakers profile <speaker-id>
 ```
 
-整理和修复 speaker 样本：
+Organize and repair speaker samples:
 
 ```bash
 python3 -m wond speakers auto-organize --apply --threshold 0.68
@@ -371,54 +375,54 @@ python3 -m wond speakers repair-sample-clips --apply
 python3 -m wond speakers reset-regroup-samples --apply --threshold 0.68 --max-merges 500
 ```
 
-Speaker 结果来自本地音频分析和样本匹配，适合做人工校正，不应当当作绝对身份判断。`reset-regroup-samples` 会重置样本分组，适合大规模重整前有数据库备份时使用。
+Speaker results come from local audio analysis and sample matching. They are useful for human correction, not absolute identity decisions. `reset-regroup-samples` resets sample grouping and is intended for large reorganizations after a database backup.
 
-## 报告、长期摘要与邮件
+## Reports, Long-Term Summaries, And Email
 
-生成日报：
+Generate a daily report:
 
 ```bash
 python3 -m wond summarize
 ```
 
-压缩长期上下文：
+Compact long-term context:
 
 ```bash
 python3 -m wond compact
 ```
 
-保留策略：
+Apply retention policy:
 
 ```bash
 python3 -m wond retention
 ```
 
-邮件摘要：
+Email summaries:
 
 ```bash
 python3 -m wond email-summary
 python3 -m wond email-due
 ```
 
-## 搜索索引
+## Search Index
 
-构建或刷新全文搜索索引：
+Build or refresh the full-text search index:
 
 ```bash
 python3 -m wond search-index
 ```
 
-之后可以在 dashboard 的 search 页面查找已经导入和分析过的内容。
+Afterwards, the dashboard Search page can find imported and analyzed content.
 
-## 常见排查
+## Troubleshooting
 
-- `status` 显示 agent 未运行：重新执行 `install-agent --load` 或检查 LaunchAgent 日志。
-- sync server 不通：先在 Mac 本机打开 `http://127.0.0.1:8765/health` 或执行 `python3 -m wond status`；再从 iPhone 检查 Tailscale 是否在线，并确认 sync URL 是 `http://<mac-tailscale-ip-or-magicdns-name>:8765/upload`。
-- dashboard 不通：重新执行 `install-dashboard-agent --load`，再打开 `http://127.0.0.1:8787`。
-- 音频分析失败：检查外置模型盘、`HF_HOME`、`ffmpeg`、MLX Audio、Ollama 和 LaunchAgent 的 PATH。
-- Location 报 `kCLErrorDomain error 1`：iOS 定位权限被拒绝或未授予足够权限。
-- Watch 仍显示旧录音界面：重新安装/更新 iPhone app 和配对 Watch app；当前 Watch target 只应显示录音已移除。
-- 新文件分析卡住：检查是否有临时锁文件，例如 Office 的 `~$...pptx`，这类文件经常不是完整文档；正常文件会先复制到 `data/file_analysis_workspace/` 再分析。
+- `status` says the agent is not running: run `install-agent --load` again or check LaunchAgent logs.
+- Sync server is unreachable: first open `http://127.0.0.1:8765/health` on the Mac or run `python3 -m wond status`; then check that Tailscale is online on the iPhone and confirm the sync URL is `http://<mac-tailscale-ip-or-magicdns-name>:8765/upload`.
+- Dashboard is unreachable: run `install-dashboard-agent --load` again, then open `http://127.0.0.1:8787`.
+- Audio analysis fails: check the external model drive, `HF_HOME`, `ffmpeg`, MLX Audio, Ollama, and the LaunchAgent PATH.
+- Location reports `kCLErrorDomain error 1`: iOS location permission was denied or is not sufficient.
+- Watch still shows the old recording UI: reinstall or update the iPhone app and paired Watch app. The current Watch target should show only the recording-removed message.
+- New-file analysis is stuck: check for temporary lock files such as Office `~$...pptx` files, which are often incomplete documents. Normal files are copied to `data/file_analysis_workspace/` before analysis.
 
 ## License
 
