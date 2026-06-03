@@ -3,7 +3,13 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from wond.insights import action_center_payload, action_suggestions_payload, project_clusters_payload, speaker_quality_payload
+from wond.insights import (
+    action_center_payload,
+    action_inbox_payload,
+    action_suggestions_payload,
+    project_clusters_payload,
+    speaker_quality_payload,
+)
 from wond.mobile import event_to_observation
 from wond.store import Observation, Store
 
@@ -102,6 +108,75 @@ class InsightProductTests(unittest.TestCase):
             self.assertEqual(obs.title, "Important")
             self.assertIn("important", obs.metadata["tag"])
             self.assertEqual(obs.metadata["source_ref"], "audio-1")
+
+    def test_action_inbox_combines_sources_and_honors_item_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = settings_for(root)
+            store = Store(settings.db_path)
+            try:
+                store.upsert_observations(
+                    [
+                        Observation(
+                            source="mobile",
+                            kind="audio_segment",
+                            source_key="audio-3",
+                            observed_at="2026-06-03T13:00:00+09:00",
+                            title="Inbox recording",
+                            body="Need to confirm the launch checklist tomorrow.",
+                            metadata={"audio_analysis": {"status": "ok", "summary": "Need to confirm the launch checklist tomorrow."}},
+                        ),
+                        Observation(
+                            source="mobile",
+                            kind="quick_tag",
+                            source_key="tag-3",
+                            observed_at="2026-06-03T13:05:00+09:00",
+                            title="Important",
+                            body="Marked for action",
+                            metadata={"tag": "important", "source_ref": "audio-3"},
+                        ),
+                        Observation(
+                            source="filesystem",
+                            kind="file_modified",
+                            source_key=str(root / "launch_checklist.md"),
+                            observed_at="2026-06-03T13:08:00+09:00",
+                            title="launch_checklist.md",
+                            body="Launch checklist follow up",
+                            metadata={"path": str(root / "launch_checklist.md")},
+                        ),
+                    ]
+                )
+                store.conn.execute(
+                    """
+                    INSERT INTO speakers (id, display_name, identity_status, confidence, created_at, updated_at, metadata)
+                    VALUES (1, 'Voice 001', 'provisional', 0.4, '2026-06-03T13:00:00+09:00', '2026-06-03T13:00:00+09:00', '{}')
+                    """
+                )
+                store.conn.commit()
+            finally:
+                store.close()
+
+            payload = action_inbox_payload(settings, {"date": "2026-06-03"})
+            inbox_types = {item["inbox_type"] for item in payload["items"]}
+            self.assertTrue(payload["ok"])
+            self.assertIn("suggestion", inbox_types)
+            self.assertIn("quick_tag", inbox_types)
+            self.assertIn("project", inbox_types)
+            self.assertIn("speaker", inbox_types)
+            self.assertGreaterEqual(payload["summary"]["all"], len(payload["items"]))
+
+            item = next(row for row in payload["items"] if row["inbox_type"] == "quick_tag")
+            store = Store(settings.db_path)
+            try:
+                store.set_insight_state(item_id=item["id"], item_type=item["item_type"], status="done")
+            finally:
+                store.close()
+
+            active = action_inbox_payload(settings, {"date": "2026-06-03"})
+            all_items = action_inbox_payload(settings, {"date": "2026-06-03", "status": "all"})
+            self.assertEqual(active["summary"]["state"]["done"], 1)
+            self.assertFalse(any(row["id"] == item["id"] for row in active["items"]))
+            self.assertTrue(any(row["id"] == item["id"] and row["state"]["status"] == "done" for row in all_items["items"]))
 
     def test_insight_state_filters_suggestions_and_projects(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -98,6 +98,7 @@ from .dashboard_shared import (
 from .executables import find_executable
 from .insights import (
     action_center_payload,
+    action_inbox_payload,
     action_suggestions_payload,
     evidence_groups_payload,
     project_clusters_payload,
@@ -105,6 +106,7 @@ from .insights import (
     speaker_quality_payload,
 )
 from .observation_filters import visible_observations
+from .project_memory import meeting_mode_payload, meeting_mode_post, project_memory_payload, project_memory_post
 from .recycle_bin import list_recycle_bin, purge_recycle_bin, recycle_bin_config, recycle_bin_summary
 from .retention import run_retention
 from .speakers import (
@@ -185,6 +187,9 @@ def make_handler(settings: Settings):
             if parsed.path == "/api/action-center":
                 self.send_json(action_center_payload(request_settings, query(parsed)))
                 return
+            if parsed.path == "/api/action-inbox":
+                self.send_json(action_inbox_payload(request_settings, query(parsed)))
+                return
             if parsed.path == "/api/repair-queue":
                 self.send_json(repair_queue_payload(request_settings, query(parsed)))
                 return
@@ -193,6 +198,12 @@ def make_handler(settings: Settings):
                 return
             if parsed.path == "/api/project-clusters":
                 self.send_json(project_clusters_payload(request_settings, query(parsed)))
+                return
+            if parsed.path == "/api/project-memory":
+                self.send_json(project_memory_payload(request_settings, query(parsed)))
+                return
+            if parsed.path == "/api/meeting-mode":
+                self.send_json(meeting_mode_payload(request_settings, query(parsed)))
                 return
             if parsed.path == "/api/speaker-quality":
                 self.send_json(speaker_quality_payload(request_settings, query(parsed)))
@@ -291,6 +302,14 @@ def make_handler(settings: Settings):
                     return
                 if parsed.path == "/api/daily-feedback":
                     result, status = api_daily_feedback_post(request_settings, payload)
+                    self.send_json(result, status)
+                    return
+                if parsed.path == "/api/project-memory":
+                    result, status = project_memory_post(request_settings, payload)
+                    self.send_json(result, status)
+                    return
+                if parsed.path == "/api/meeting-mode":
+                    result, status = meeting_mode_post(request_settings, payload)
                     self.send_json(result, status)
                     return
                 if parsed.path == "/api/insight-state":
@@ -1180,7 +1199,7 @@ def api_insight_state_post(settings: Settings, payload: dict[str, Any]) -> tuple
     status_value = str(payload.get("status") or "open").strip()
     if not item_id:
         return {"ok": False, "error": "item_id_required"}, HTTPStatus.BAD_REQUEST
-    if item_type not in {"suggestion", "project"}:
+    if item_type not in {"suggestion", "project", "repair", "quick_tag", "speaker"}:
         return {"ok": False, "error": "invalid_item_type"}, HTTPStatus.BAD_REQUEST
     if status_value not in {"open", "snoozed", "done", "archived", "dismissed"}:
         return {"ok": False, "error": "invalid_status"}, HTTPStatus.BAD_REQUEST
@@ -3622,7 +3641,7 @@ DASHBOARD_HTML = r"""<!doctype html>
     .action-kpi { padding: 14px; border-right: 1px solid var(--line); min-width: 0; }
     .action-kpi:last-child { border-right: 0; }
     .action-kpi .value { font-size: 26px; font-weight: 800; line-height: 1.1; overflow-wrap: anywhere; }
-    .action-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) repeat(4, auto); gap: 8px; align-items: center; }
+    .action-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) repeat(5, auto); gap: 8px; align-items: center; }
     .action-toolbar input { width: 100%; min-width: 0; }
     .action-main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr); gap: 14px; align-items: start; margin-top: 14px; }
     .action-stack, .action-side { display: grid; gap: 14px; min-width: 0; }
@@ -3660,6 +3679,9 @@ DASHBOARD_HTML = r"""<!doctype html>
     .insight-card.high { border-left-color: var(--fail); }
     .insight-card.medium { border-left-color: var(--warn); }
     .insight-card.project { border-left-color: var(--accent-2); }
+    .insight-card.repair { border-left-color: var(--warn); }
+    .insight-card.quick_tag { border-left-color: var(--accent); }
+    .insight-card.speaker { border-left-color: #64748b; }
     .insight-card.done, .insight-card.archived, .insight-card.dismissed { opacity: .72; }
     .insight-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; min-width: 0; }
     .insight-title { font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; word-break: break-word; }
@@ -3676,6 +3698,16 @@ DASHBOARD_HTML = r"""<!doctype html>
     .insight-state-list, .insight-breakdown { display: grid; gap: 8px; }
     .insight-state-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); padding: 8px 0; }
     .insight-state-row:last-child { border-bottom: 0; }
+    .inbox-toolbar { grid-template-columns: 128px minmax(180px, 1fr) 140px 140px 140px auto; }
+    .memory-list, .meeting-list, .meeting-note-list { display: grid; gap: 9px; }
+    .memory-card, .meeting-card { border: 1px solid var(--line); border-left: 4px solid var(--accent-2); border-radius: 8px; padding: 12px; background: var(--panel); min-width: 0; }
+    .memory-card.focused { border-left-color: var(--accent); }
+    .memory-card.archived, .meeting-card.ended { border-left-color: #9aa4b2; opacity: .82; }
+    .memory-head, .meeting-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; min-width: 0; }
+    .memory-title, .meeting-title { font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; word-break: break-word; }
+    .memory-body, .meeting-body { color: var(--muted); line-height: 1.5; margin-top: 7px; overflow-wrap: anywhere; word-break: break-word; }
+    .memory-actions, .meeting-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+    .meeting-active { border-left-color: var(--accent); background: #fbfcfe; }
     .evidence-item:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
     .today-main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start; margin-top: 14px; width: 100%; min-width: 0; max-width: 100%; overflow-x: hidden; }
     .today-main > *, .today-sidebar, .day-list, .day-section { min-width: 0; }
@@ -3741,7 +3773,7 @@ DASHBOARD_HTML = r"""<!doctype html>
       .app { grid-template-columns: 1fr; }
       aside { position: static; height: auto; }
       nav { grid-template-columns: repeat(2, minmax(0,1fr)); }
-      .grid.cols-4, .grid.cols-3, .grid.cols-2, .split, .reports-layout, .reports-metrics, .day-layout, .day-toolbar, .today-summary, .today-main, .today-stats, .action-hero, .action-main, .action-kpis, .action-toolbar, .insight-hero, .insight-main, .insight-kpis, .insight-toolbar, .overview-hero, .overview-main, .overview-kpis, .doctor-hero, .doctor-main, .doctor-kpis, .check-row, .audio-hero, .audio-main, .audio-kpis, .audio-card, .searchbar, .search-hero, .search-main, .search-answer-layout, .search-retrieval, .search-index-grid, .search-metric-grid, .timeline-hero, .timeline-toolbar, .timeline-stats, .timeline-main, .timeline-event, .sources-hero, .source-kpis, .source-action-grid, .sources-main, .source-grid, .source-kind-row, .speakers-hero, .speaker-command-row, .speaker-filter-row, .speaker-review-toolbar, .speaker-sample-toolbar, .speaker-selection-grid, .speaker-bulk-actions, .speaker-bulk-row, .speaker-tool-row, .speakers-main, .speaker-grid, .files-hero, .file-kpis, .file-main, .file-toolbar, .file-card, .recycle-hero, .recycle-kpis, .recycle-main, .recycle-toolbar, .recycle-card, .recycle-actions, .mobile-hero, .mobile-kpis, .mobile-main, .mobile-toolbar, .mobile-event-card, .mobile-audio-grid, .mobile-actions, .sync-hero, .sync-kpis, .sync-main, .sync-toolbar, .sync-event-card, .sync-storage-grid, .sync-actions, .setup-hero, .setup-kpis, .setup-main, .setup-step, .setup-service, .setup-actions, .setup-url-row, .settings-hero, .settings-kpis, .settings-main, .settings-toolbar, .settings-group-grid, .settings-action-grid, .settings-row, .settings-edit-row, .maintenance-hero, .maintenance-kpis, .maintenance-main, .maintenance-action-grid { grid-template-columns: 1fr; }
+      .grid.cols-4, .grid.cols-3, .grid.cols-2, .split, .reports-layout, .reports-metrics, .day-layout, .day-toolbar, .today-summary, .today-main, .today-stats, .action-hero, .action-main, .action-kpis, .action-toolbar, .insight-hero, .insight-main, .insight-kpis, .insight-toolbar, .inbox-toolbar, .overview-hero, .overview-main, .overview-kpis, .doctor-hero, .doctor-main, .doctor-kpis, .check-row, .audio-hero, .audio-main, .audio-kpis, .audio-card, .searchbar, .search-hero, .search-main, .search-answer-layout, .search-retrieval, .search-index-grid, .search-metric-grid, .timeline-hero, .timeline-toolbar, .timeline-stats, .timeline-main, .timeline-event, .sources-hero, .source-kpis, .source-action-grid, .sources-main, .source-grid, .source-kind-row, .speakers-hero, .speaker-command-row, .speaker-filter-row, .speaker-review-toolbar, .speaker-sample-toolbar, .speaker-selection-grid, .speaker-bulk-actions, .speaker-bulk-row, .speaker-tool-row, .speakers-main, .speaker-grid, .files-hero, .file-kpis, .file-main, .file-toolbar, .file-card, .recycle-hero, .recycle-kpis, .recycle-main, .recycle-toolbar, .recycle-card, .recycle-actions, .mobile-hero, .mobile-kpis, .mobile-main, .mobile-toolbar, .mobile-event-card, .mobile-audio-grid, .mobile-actions, .sync-hero, .sync-kpis, .sync-main, .sync-toolbar, .sync-event-card, .sync-storage-grid, .sync-actions, .setup-hero, .setup-kpis, .setup-main, .setup-step, .setup-service, .setup-actions, .setup-url-row, .settings-hero, .settings-kpis, .settings-main, .settings-toolbar, .settings-group-grid, .settings-action-grid, .settings-row, .settings-edit-row, .maintenance-hero, .maintenance-kpis, .maintenance-main, .maintenance-action-grid { grid-template-columns: 1fr; }
       .today-stats, .timeline-stats, .overview-kpis, .doctor-kpis, .audio-kpis, .source-kpis, .file-kpis, .sync-kpis, .setup-kpis, .settings-kpis, .maintenance-kpis, .action-kpis, .insight-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .action-kpi { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
       .action-kpi:nth-child(2n) { border-right: 0; }
@@ -3772,7 +3804,7 @@ DASHBOARD_HTML = r"""<!doctype html>
       .report-reader { order: -1; min-height: 0; }
       .reports-nav { order: 0; }
       .reports-side { order: 1; }
-      .day-feed, .timeline-feed, .repair-list, .suggestion-list, .project-list, .quality-list, .highlight-list, .insight-list, .issue-list, .fix-list, .area-list, .speaker-grid, .speaker-match-list, .speaker-sample-list, .audio-list, .file-list, .sync-event-list, .source-grid, .reports-list, .check-list, .report-reader-content, .settings-group-grid, .settings-edit-list {
+      .day-feed, .timeline-feed, .repair-list, .suggestion-list, .project-list, .quality-list, .highlight-list, .insight-list, .action-inbox-list, .memory-list, .meeting-list, .issue-list, .fix-list, .area-list, .speaker-grid, .speaker-match-list, .speaker-sample-list, .audio-list, .file-list, .sync-event-list, .source-grid, .reports-list, .check-list, .report-reader-content, .settings-group-grid, .settings-edit-list {
         max-height: 460px;
       }
       .speaker-match-list { max-height: 320px; }
@@ -3798,7 +3830,7 @@ DASHBOARD_HTML = r"""<!doctype html>
 <div id="buttonTooltip" class="button-tooltip" role="tooltip"></div>
 <script>
 const sections = [
-  ['today','今天'], ['action','行动'], ['suggestions','行动建议'], ['projects','项目'], ['search','搜索问答'],
+  ['today','今天'], ['action','每日工作台'], ['inbox','Action Inbox'], ['projects','项目'], ['memory','项目记忆'], ['meeting','Meeting Mode'], ['search','搜索问答'],
   ['audio','音频队列'], ['speakers','说话人'],
   ['files','文件'], ['sources','来源'], ['reports','报告'],
   ['setup','设置向导'], ['sync','手机同步'], ['doctor','Doctor'], ['settings','设置']
@@ -3808,14 +3840,14 @@ const utilitySections = [
 ];
 const allSections = [...sections, ...utilitySections];
 const sectionGroups = {
-  today:'日常', action:'日常', suggestions:'日常', projects:'日常', search:'日常',
+  today:'日常', action:'日常', inbox:'日常', projects:'日常', memory:'日常', meeting:'日常', search:'日常',
   audio:'音频', speakers:'音频',
   files:'资料', sources:'资料', reports:'资料',
   setup:'系统', sync:'系统', doctor:'系统', settings:'系统',
   overview:'低频维护工具', timeline:'低频维护工具', recycle:'低频维护工具', maintenance:'低频维护工具'
 };
-const navParents = {overview:'today', timeline:'today', recycle:'files', maintenance:'settings'};
-const state = { section: 'today', setupToken: '', actionDate: 'today', actionView: 'repairs', suggestionDate: 'today', suggestionStatus: 'active', suggestionPriority: 'all', suggestionSource: 'all', suggestionQ: '', projectDate: 'today', projectStatus: 'active', projectSource: 'all', projectQ: '', reportPath: '', reportQ: '', reportCategory: 'all', audioStatus: '', sourceView: 'all', speakerView: 'active', speakerQ: '', speakerSort: 'review', speakerSelectedIds: [], speakerShownIds: [], speakerBulkTarget: '', speakerSamplesFor: 'visible', speakerSampleView: 'all', speakerSampleQ: '', speakerSampleSort: 'needs_work', speakerContextSource: 'idle', speakerSamples: [], fileView: 'all', fileQ: '', recycleView: 'all', recycleQ: '', syncView: 'all', syncQ: '', settingsGroup: 'collectors', settingsQ: '', timelineDate: 'today', timelineQ: '', timelineSource: 'all', timelineType: 'all', todayDate: 'today', todayQ: '', todayFrom: '', todayTo: '', todayCategory: 'all', doctorStatus: 'all', doctorArea: 'all', searchQ: '', searchSource: '', searchQuestion: '' };
+const navParents = {overview:'today', timeline:'today', suggestions:'inbox', recycle:'files', maintenance:'settings'};
+const state = { section: 'today', setupToken: '', actionDate: 'today', actionView: 'inbox', inboxDate: 'today', inboxStatus: 'active', inboxPriority: 'all', inboxSource: 'all', inboxType: 'all', inboxQ: '', suggestionDate: 'today', suggestionStatus: 'active', suggestionPriority: 'all', suggestionSource: 'all', suggestionQ: '', projectDate: 'today', projectStatus: 'active', projectSource: 'all', projectQ: '', memoryDate: 'today', memoryStatus: 'active', memoryQ: '', meetingProjectId: '', meetingTitle: '', reportPath: '', reportQ: '', reportCategory: 'all', audioStatus: '', sourceView: 'all', speakerView: 'active', speakerQ: '', speakerSort: 'review', speakerSelectedIds: [], speakerShownIds: [], speakerBulkTarget: '', speakerSamplesFor: 'visible', speakerSampleView: 'all', speakerSampleQ: '', speakerSampleSort: 'needs_work', speakerContextSource: 'idle', speakerSamples: [], fileView: 'all', fileQ: '', recycleView: 'all', recycleQ: '', syncView: 'all', syncQ: '', settingsGroup: 'collectors', settingsQ: '', timelineDate: 'today', timelineQ: '', timelineSource: 'all', timelineType: 'all', todayDate: 'today', todayQ: '', todayFrom: '', todayTo: '', todayCategory: 'all', doctorStatus: 'all', doctorArea: 'all', searchQ: '', searchSource: '', searchQuestion: '' };
 const searchSources = [['','全部来源'], ['mobile','mobile'], ['local_ai','local_ai'], ['report','report'], ['filesystem','filesystem'], ['browser','browser'], ['apple_mail','apple_mail']];
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -3823,9 +3855,11 @@ const escAttr = (s) => String(s ?? '').replace(/\\/g, '\\\\').replace(/&/g, '&am
 const jstr = (s) => JSON.stringify(String(s ?? ''));
 const status = (s) => `<span class="status ${esc(s || 'info')}">${esc(s || 'info')}</span>`;
 const sectionTips = {
-  action: '把今天的重点、待修复项、行动建议、项目聚类和说话人质量收在一个工作台。',
-  suggestions: '把录音、快速标注、日程和文件里检测出的待办集中处理。',
+  action: '每日工作台会合并今日重点、Action Inbox、修复项、项目聚类和说话人质量。',
+  inbox: '把录音、快速标注、修复项、项目和说话人待处理集中成一个可清空的 Inbox。',
   projects: '按证据自动聚合今天的主题、项目和相关下一步。',
+  memory: '把每天的项目聚类和会议结论沉淀为长期项目档案。',
+  meeting: '开会时记录议程、笔记和行动项，并回写项目记忆与本地时间线。',
   today: '打开实时日内时间线，合并应用、录音、文件、位置和提醒。',
   overview: '查看系统数据量、健康状态、最近采集和维护入口。',
   doctor: '运行本机诊断，检查采集器、同步服务、本地 AI 和数据质量。',
@@ -3935,7 +3969,7 @@ let buttonTipObserver = null;
 let activeTipButton = null;
 function toast(msg){ const el=$('toast'); el.textContent=msg; el.classList.add('show'); setTimeout(()=>el.classList.remove('show'), 6500); }
 async function api(path, opts){ const r=await fetch(path, opts); const j=await r.json(); if(!r.ok) throw new Error(j.error || r.statusText); return j; }
-function canonicalSection(id){ return id === 'mobile' ? 'sync' : (id || 'today'); }
+function canonicalSection(id){ return id === 'mobile' ? 'sync' : (id === 'suggestions' ? 'inbox' : (id || 'today')); }
 function isKnownSection(id){ return allSections.some(s=>s[0]===id); }
 function nav(){
   const groups = [];
@@ -4047,15 +4081,18 @@ function positionButtonTip(x, y){
   el.style.top = `${top}px`;
 }
 async function actionCenter(){
-  const buttons = `<button class="btn" onclick="action('collect',{date:'today'})">采集</button><button class="btn" onclick="action('analyze_audio',{date:${jstr(state.actionDate || 'today')},limit:20})">分析音频</button><button class="btn" onclick="action('search_index',{limit:5000})">刷新索引</button><button class="btn primary" onclick="actionCenter()">刷新</button>`;
-  setHeader('行动','读取中...', buttons);
-  const [center, quality] = await Promise.all([
+  const buttons = `<button class="btn" onclick="action('collect',{date:'today'})">采集</button><button class="btn" onclick="action('analyze_audio',{date:${jstr(state.actionDate || 'today')},limit:20})">分析音频</button><button class="btn" onclick="go('inbox')">Action Inbox</button><button class="btn primary" onclick="actionCenter()">刷新</button>`;
+  setHeader('每日工作台','读取中...', buttons);
+  const [center, inbox, quality] = await Promise.all([
     api(`/api/action-center?date=${encodeURIComponent(state.actionDate || 'today')}`),
+    api(`/api/action-inbox?date=${encodeURIComponent(state.actionDate || 'today')}&status=active`),
     api('/api/speaker-quality?view=needs_work')
   ]);
   const summary = center.summary || {};
+  const inboxSummary = inbox.summary || {};
   const qualitySummary = quality.summary || {};
-  $('subtitle').textContent = `${center.date || ''} · ${summary.priority_repairs || 0} 待修复 · ${summary.suggestions || 0} 行动建议 · ${summary.projects || 0} 项目`;
+  const inboxRows = inbox.items || [];
+  $('subtitle').textContent = `${center.date || ''} · ${inboxRows.length} inbox · ${summary.priority_repairs || 0} 待修复 · ${summary.projects || 0} 项目`;
   $('view').innerHTML = `
     <div class="action-hero">
       <section class="card">
@@ -4063,38 +4100,41 @@ async function actionCenter(){
         <div class="action-toolbar">
           <input value="${escAttr(state.actionDate || 'today')}" onchange="state.actionDate=this.value || 'today'; actionCenter()" placeholder="today / yesterday / YYYY-MM-DD">
           <button class="filter-pill ${state.actionView==='all'?'active':''}" onclick="setActionView('all')">全部</button>
+          <button class="filter-pill ${state.actionView==='inbox'?'active':''}" onclick="setActionView('inbox')">Inbox</button>
           <button class="filter-pill ${state.actionView==='repairs'?'active':''}" onclick="setActionView('repairs')">修复</button>
-          <button class="filter-pill ${state.actionView==='suggestions'?'active':''}" onclick="setActionView('suggestions')">行动</button>
           <button class="filter-pill ${state.actionView==='projects'?'active':''}" onclick="setActionView('projects')">项目</button>
+          <button class="filter-pill ${state.actionView==='speakers'?'active':''}" onclick="setActionView('speakers')">Speaker</button>
         </div>
         <div class="action-kpis" style="margin-top:12px">
-          ${actionKpi('记录', summary.observations || 0, `${summary.activity_samples || 0} app samples`)}
+          ${actionKpi('Inbox', inboxRows.length, `${inboxSummary.high || 0} high`)}
           ${actionKpi('待修复', summary.priority_repairs || 0, 'critical / warn')}
-          ${actionKpi('行动建议', summary.suggestions || 0, '从录音和记录提取')}
+          ${actionKpi('今日证据', summary.observations || 0, `${summary.activity_samples || 0} app samples`)}
           ${actionKpi('Speaker', qualitySummary.needs_work || 0, `avg ${qualitySummary.average_score || 0}`)}
         </div>
       </section>
       <section class="card">
         <div class="section-title"><h3>快速流转</h3><span class="muted">可执行</span></div>
         <div class="overview-actions">
-          <button class="btn primary" onclick="runFirstRepair()">执行第一条修复</button>
-          <button class="btn" onclick="go('suggestions')">行动建议</button>
+          <button class="btn primary" onclick="go('inbox')">打开 Inbox</button>
+          <button class="btn" onclick="runFirstRepair()">执行第一条修复</button>
           <button class="btn" onclick="go('projects')">项目聚类</button>
           <button class="btn" onclick="go('search')">证据问答</button>
           <button class="btn" onclick="go('today')">今天时间线</button>
+          <button class="btn" onclick="action('refresh_report',{date:state.actionDate || 'today'})">刷新日报</button>
         </div>
         <div class="quick-tag-row">${quickTagChips(center.quick_tags || [])}</div>
       </section>
     </div>
     <div class="action-main">
       <div class="action-stack">
+        <section class="card action-section" data-action-section="inbox">
+          <div class="section-title"><h3>Action Inbox</h3><span class="muted">${esc(inboxRows.length)} active</span></div>
+          ${actionInboxList(inboxRows.slice(0, 10), {compact:true})}
+          ${inboxRows.length > 10 ? `<div class="search-actions" style="margin-top:10px"><button class="btn" onclick="go('inbox')">查看全部 ${esc(inboxRows.length)} 条</button></div>` : ''}
+        </section>
         <section class="card action-section" data-action-section="repairs">
           <div class="section-title"><h3>待修复队列</h3><span class="muted">${esc((center.repair_queue || []).length)} items</span></div>
           ${repairList(center.repair_queue || [])}
-        </section>
-        <section class="card action-section" data-action-section="suggestions">
-          <div class="section-title"><h3>自动行动建议</h3><span class="muted">${esc((center.suggestions || []).length)} candidates</span></div>
-          ${suggestionList(center.suggestions || [])}
         </section>
         <section class="card action-section" data-action-section="projects">
           <div class="section-title"><h3>项目 / 主题聚类</h3><span class="muted">${esc((center.projects || []).length)} clusters</span></div>
@@ -4113,6 +4153,7 @@ async function actionCenter(){
       </div>
     </div>`;
   window.__actionCenterData = center;
+  window.__inboxItems = inboxRows;
   applyActionView();
 }
 function setActionView(value){
@@ -4192,6 +4233,187 @@ function runFirstRepair(){
   const item = rows.find(row => row.action);
   if(!item) return toast('没有可执行的修复项');
   action(item.action.name, item.action.args || {});
+}
+async function actionInbox(){
+  const buttons = `<button class="btn" onclick="setInboxDate('today')">今天</button><button class="btn" onclick="setInboxDate('yesterday')">昨天</button><button class="btn" onclick="bulkInboxState('done')">当前完成</button><button class="btn" onclick="go('action')">每日工作台</button><button class="btn primary" onclick="actionInbox()">刷新</button>`;
+  setHeader('Action Inbox','读取中...', buttons);
+  const params = new URLSearchParams({date: state.inboxDate || 'today', status: state.inboxStatus || 'active'});
+  if(state.inboxQ) params.set('q', state.inboxQ);
+  if(state.inboxPriority && state.inboxPriority !== 'all') params.set('priority', state.inboxPriority);
+  if(state.inboxSource && state.inboxSource !== 'all') params.set('source', state.inboxSource);
+  if(state.inboxType && state.inboxType !== 'all') params.set('type', state.inboxType);
+  const j = await api('/api/action-inbox?' + params.toString());
+  const summary = j.summary || {};
+  const stateSummary = summary.state || {};
+  const rows = j.items || [];
+  window.__inboxItems = rows;
+  $('subtitle').textContent = `${j.date || ''} · ${rows.length}/${summary.all || rows.length} 条 · ${insightStatusLabel(state.inboxStatus)}`;
+  $('view').innerHTML = `
+    <div class="insight-hero">
+      <section class="card">
+        <div class="section-title"><h3>行动收件箱</h3><span class="muted">${esc(shortDateTime(j.generated_at || ''))}</span></div>
+        <div class="insight-toolbar inbox-toolbar">
+          <input id="inboxDate" value="${escAttr(state.inboxDate || 'today')}" aria-label="date">
+          <input id="inboxQ" value="${escAttr(state.inboxQ || '')}" placeholder="搜索行动、来源、证据" onkeydown="inboxKey(event)" aria-label="search">
+          <select id="inboxType">${inboxTypeOptions(state.inboxType)}</select>
+          <select id="inboxPriority">${suggestionPriorityOptions(state.inboxPriority)}</select>
+          <select id="inboxSource">${insightSourceOptions(state.inboxSource)}</select>
+          <button class="btn primary" onclick="applyInboxFilters()">查找</button>
+        </div>
+        <div class="quickbar" style="margin-top:10px">${inboxStatusPills(state.inboxStatus, summary)}</div>
+        <div class="insight-kpis">
+          ${insightKpi('当前', rows.length, 'current filter')}
+          ${insightKpi('未处理', stateSummary.open || 0, 'open')}
+          ${insightKpi('高优先级', summary.high || 0, 'high')}
+          ${insightKpi('可执行', summary.ready_actions || 0, 'actions')}
+        </div>
+      </section>
+      <section class="card">
+        <div class="section-title"><h3>处理流</h3><span class="muted">inbox zero</span></div>
+        <div class="overview-actions">
+          <button class="btn" onclick="go('action')">每日工作台</button>
+          <button class="btn" onclick="go('today')">今天时间线</button>
+          <button class="btn" onclick="bulkInboxState('snoozed')">当前稍后</button>
+          <button class="btn danger" onclick="bulkInboxState('dismissed')">当前忽略</button>
+        </div>
+        ${inboxTypeBreakdown(summary)}
+      </section>
+    </div>
+    <div class="insight-main">
+      <section class="card">
+        <div class="section-title"><h3>Inbox 列表</h3><span class="muted">${esc(rows.length)} shown</span></div>
+        ${actionInboxList(rows)}
+      </section>
+      <aside class="insight-side">
+        <section class="card">
+          <div class="section-title"><h3>类型</h3><span class="muted">${esc(state.inboxType || 'all')}</span></div>
+          <div class="quickbar">${inboxTypePills(summary)}</div>
+        </section>
+        <section class="card">
+          <div class="section-title"><h3>优先级</h3><span class="muted">${esc(priorityLabel(state.inboxPriority || 'all'))}</span></div>
+          <div class="quickbar">${inboxPriorityPills(summary)}</div>
+        </section>
+        <section class="card">
+          <div class="section-title"><h3>状态</h3></div>
+          ${insightStateBreakdown(summary)}
+        </section>
+      </aside>
+    </div>`;
+}
+function actionInboxList(rows, opts={}){
+  if(!(rows || []).length) return '<div class="empty-state">当前没有待处理行动</div>';
+  return `<div class="insight-list action-inbox-list">${rows.map(item => inboxCard(item, opts)).join('')}</div>`;
+}
+function inboxCard(item, opts={}){
+  const stateInfo = item.state || {};
+  const currentStatus = stateInfo.status || 'open';
+  const pinned = !!stateInfo.pinned;
+  const itemType = item.item_type || 'suggestion';
+  const actionButton = item.action ? `<button class="btn primary" data-action="${escAttr(JSON.stringify(item.action))}" onclick="runCardAction(this)">${esc(item.action.label || '执行')}</button>` : '';
+  const compact = !!opts.compact;
+  return `<article class="insight-card inbox-card ${esc(item.inbox_type || '')} ${esc(item.priority || 'low')} ${esc(currentStatus)}">
+    <div class="insight-head">
+      <div>
+        <div class="insight-title">${pinned ? '★ ' : ''}${esc(item.title || 'Action')}</div>
+        <div class="item-meta">${esc(shortDateTime(item.time || ''))} · ${esc(inboxTypeLabel(item.inbox_type))} · ${esc(item.reason || '')}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">${status(item.priority || 'low')}${status(currentStatus)}</div>
+    </div>
+    <div class="insight-body">${esc(item.body || '')}</div>
+    <div class="insight-chips">
+      <span class="evidence-chip">${esc((item.recommended_action || {}).label || '稍后处理')}</span>
+      <span class="evidence-chip">${esc(item.source || '')}/${esc(item.kind || '')}</span>
+    </div>
+    <div class="insight-actions">
+      ${actionButton}
+      <button class="btn" data-item-id="${escAttr(item.id)}" data-item-type="${escAttr(itemType)}" data-status="${escAttr(currentStatus)}" data-pinned="${escAttr(pinned)}" onclick="setInboxItemState(this,'done')">完成</button>
+      <button class="btn" data-item-id="${escAttr(item.id)}" data-item-type="${escAttr(itemType)}" data-status="${escAttr(currentStatus)}" data-pinned="${escAttr(pinned)}" onclick="setInboxItemState(this,'snoozed')">稍后</button>
+      <button class="btn" data-item-id="${escAttr(item.id)}" data-item-type="${escAttr(itemType)}" data-status="${escAttr(currentStatus)}" data-pinned="${escAttr(pinned)}" onclick="toggleInboxPin(this)">${pinned ? '取消置顶' : '置顶'}</button>
+      <button class="btn" data-query="${escAttr(item.title || item.body || '')}" onclick="openInsightSearch(this)">问证据</button>
+      <button class="btn danger" data-item-id="${escAttr(item.id)}" data-item-type="${escAttr(itemType)}" data-status="${escAttr(currentStatus)}" data-pinned="${escAttr(pinned)}" onclick="setInboxItemState(this,'dismissed')">忽略</button>
+    </div>
+    ${compact ? '' : `<div class="insight-note">
+      <textarea data-insight-note placeholder="处理备注">${esc(stateInfo.note || '')}</textarea>
+      <button class="btn" data-item-id="${escAttr(item.id)}" data-item-type="${escAttr(itemType)}" data-status="${escAttr(currentStatus)}" data-pinned="${escAttr(pinned)}" onclick="saveInboxItemNote(this)">保存备注</button>
+    </div>
+    ${insightEvidenceDetails(item.evidence || [])}`}
+  </article>`;
+}
+function inboxTypeOptions(current){
+  return inboxTypeRows().map(([value,label]) => `<option value="${escAttr(value)}" ${current===value?'selected':''}>${esc(label)}</option>`).join('');
+}
+function inboxTypeRows(){
+  return [['all','全部类型'], ['suggestion','建议'], ['quick_tag','快速标注'], ['repair','修复'], ['project','项目'], ['speaker','说话人']];
+}
+function inboxTypeLabel(value){
+  const row = inboxTypeRows().find(item => item[0] === value);
+  return row ? row[1] : (value || '类型');
+}
+function inboxTypePills(summary){
+  const counts = (summary || {}).by_type_all || (summary || {}).by_type || {};
+  return inboxTypeRows().map(([value,label]) => {
+    const count = value === 'all' ? ((summary || {}).all || 0) : (counts[value] || 0);
+    return `<button class="filter-pill ${state.inboxType===value?'active':''}" onclick="setInboxType('${value}')">${esc(label)} <span class="chip-count">${esc(count)}</span></button>`;
+  }).join('');
+}
+function inboxTypeBreakdown(summary){
+  const counts = (summary || {}).by_type_all || {};
+  const rows = inboxTypeRows().filter(([value]) => value !== 'all');
+  return `<div class="insight-state-list" style="margin-top:12px">${rows.map(([key,label]) => `<div class="insight-state-row"><span>${esc(label)}</span><span class="queue-value">${esc(counts[key] || 0)}</span></div>`).join('')}</div>`;
+}
+function inboxStatusPills(current, summary){
+  const stateSummary = (summary || {}).state || {};
+  const total = Number((summary || {}).all || (summary || {}).total || 0);
+  const rows = [
+    ['active', '活跃', stateSummary.active ?? total],
+    ['open', '未处理', stateSummary.open || 0],
+    ['snoozed', '稍后', stateSummary.snoozed || 0],
+    ['done', '已完成', stateSummary.done || 0],
+    ['dismissed', '已忽略', stateSummary.dismissed || 0],
+    ['all', '全部', total],
+  ];
+  return rows.map(([key, label, count]) => `<button class="filter-pill ${current===key?'active':''}" onclick="setInboxStatus('${key}')">${esc(label)} <span class="chip-count">${esc(count)}</span></button>`).join('');
+}
+function inboxPriorityPills(summary){
+  const rows = [['all','全部', (summary || {}).total || 0], ['high','高', (summary || {}).high || 0], ['medium','中', (summary || {}).medium || 0], ['low','低', (summary || {}).low || 0]];
+  return rows.map(([key,label,count]) => `<button class="filter-pill ${state.inboxPriority===key?'active':''}" onclick="setInboxPriority('${key}')">${esc(label)} <span class="chip-count">${esc(count)}</span></button>`).join('');
+}
+function applyInboxFilters(){
+  state.inboxDate = $('inboxDate').value || 'today';
+  state.inboxQ = $('inboxQ').value;
+  state.inboxType = $('inboxType').value || 'all';
+  state.inboxPriority = $('inboxPriority').value || 'all';
+  state.inboxSource = $('inboxSource').value || 'all';
+  actionInbox();
+}
+function inboxKey(event){
+  if(event.key === 'Enter'){
+    event.preventDefault();
+    applyInboxFilters();
+  }
+}
+function setInboxDate(value){ state.inboxDate = value || 'today'; actionInbox(); }
+function setInboxStatus(value){ state.inboxStatus = value || 'active'; actionInbox(); }
+function setInboxType(value){ state.inboxType = value || 'all'; actionInbox(); }
+function setInboxPriority(value){ state.inboxPriority = value || 'all'; actionInbox(); }
+function setInboxItemState(button, statusValue, pinnedValue){
+  setInsightState(button, button.dataset.itemType || 'suggestion', statusValue, pinnedValue);
+}
+function toggleInboxPin(button){
+  const pinned = !(button.dataset.pinned === 'true');
+  setInboxItemState(button, button.dataset.status || 'open', pinned);
+}
+function saveInboxItemNote(button){
+  setInboxItemState(button, button.dataset.status || 'open', button.dataset.pinned === 'true');
+}
+async function bulkInboxState(statusValue){
+  const items = window.__inboxItems || [];
+  if(!items.length) return toast('当前 Inbox 为空');
+  for(const item of items){
+    await api('/api/insight-state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({item_id:item.id,item_type:item.item_type || 'suggestion',status:statusValue})});
+  }
+  toast(`已更新 ${items.length} 条`);
+  render();
 }
 async function suggestionInbox(){
   const buttons = `<button class="btn" onclick="setSuggestionDate('today')">今天</button><button class="btn" onclick="setSuggestionDate('yesterday')">昨天</button><button class="btn" onclick="bulkInsightState('suggestion','done')">当前完成</button><button class="btn primary" onclick="suggestionInbox()">刷新</button>`;
@@ -4288,6 +4510,280 @@ function suggestionInboxCard(item){
     ${insightEvidenceDetails(item.evidence || [])}
   </article>`;
 }
+async function projectMemory(){
+  const buttons = `<button class="btn" onclick="setMemoryDate('today')">今天</button><button class="btn" onclick="go('meeting')">Meeting Mode</button><button class="btn" onclick="go('projects')">项目聚类</button><button class="btn primary" onclick="projectMemory()">刷新</button>`;
+  setHeader('项目记忆','读取中...', buttons);
+  const params = new URLSearchParams({date: state.memoryDate || 'today', status: state.memoryStatus || 'active'});
+  if(state.memoryQ) params.set('q', state.memoryQ);
+  const j = await api('/api/project-memory?' + params.toString());
+  const summary = j.summary || {};
+  const memories = j.memories || [];
+  const suggested = j.suggested_projects || [];
+  window.__projectMemories = memories;
+  window.__suggestedProjects = suggested;
+  $('subtitle').textContent = `${summary.shown || 0}/${summary.total || 0} 项目 · ${summary.suggested || 0} 今日建议 · ${summary.active_meeting || 0} active meeting`;
+  $('view').innerHTML = `
+    <div class="insight-hero">
+      <section class="card">
+        <div class="section-title"><h3>长期项目档案</h3><span class="muted">${esc(shortDateTime(j.generated_at || ''))}</span></div>
+        <div class="insight-toolbar projects">
+          <input id="memoryDate" value="${escAttr(state.memoryDate || 'today')}" aria-label="date">
+          <input id="memoryQ" value="${escAttr(state.memoryQ || '')}" placeholder="搜索项目、关键词、行动项" onkeydown="memoryKey(event)" aria-label="search">
+          <select id="memoryStatus">${memoryStatusOptions(state.memoryStatus)}</select>
+          <button class="btn primary" onclick="applyMemoryFilters()">查找</button>
+        </div>
+        <div class="quickbar" style="margin-top:10px">${memoryStatusPills(summary)}</div>
+        <div class="insight-kpis">
+          ${insightKpi('显示', memories.length, 'current filter')}
+          ${insightKpi('活跃', summary.active || 0, 'active')}
+          ${insightKpi('关注', summary.focused || 0, 'focused')}
+          ${insightKpi('今日建议', suggested.length, 'clusters')}
+        </div>
+      </section>
+      <section class="card">
+        <div class="section-title"><h3>新建项目</h3><span class="muted">manual</span></div>
+        <input id="memoryNewTitle" placeholder="项目名">
+        <textarea id="memoryNewSummary" placeholder="这个项目的长期背景、目标、当前状态" style="margin-top:8px"></textarea>
+        <input id="memoryNewKeywords" placeholder="关键词，用逗号分隔" style="margin-top:8px">
+        <div class="overview-actions" style="margin-top:8px">
+          <button class="btn primary" onclick="createProjectMemory()">创建记忆</button>
+          <button class="btn" onclick="go('meeting')">开会</button>
+        </div>
+      </section>
+    </div>
+    <div class="insight-main">
+      <section class="card">
+        <div class="section-title"><h3>项目记忆</h3><span class="muted">${esc(memories.length)} shown</span></div>
+        ${projectMemoryList(memories)}
+      </section>
+      <aside class="insight-side">
+        <section class="card">
+          <div class="section-title"><h3>今日可沉淀项目</h3><span class="muted">${esc(suggested.length)} clusters</span></div>
+          ${suggestedProjectList(suggested)}
+        </section>
+      </aside>
+    </div>`;
+}
+function projectMemoryList(rows){
+  if(!(rows || []).length) return '<div class="empty-state">还没有项目记忆；可以从今日项目聚类或会议结束时写入。</div>';
+  return `<div class="memory-list">${rows.map(projectMemoryCard).join('')}</div>`;
+}
+function projectMemoryCard(item){
+  return `<article class="memory-card ${esc(item.status || '')}">
+    <div class="memory-head">
+      <div>
+        <div class="memory-title">${esc(item.title || '未命名项目')}</div>
+        <div class="item-meta">${esc(item.status || 'active')} · ${esc(item.evidence_count || 0)} evidence · latest ${esc(shortDateTime(item.last_seen_at || item.updated_at || ''))}</div>
+      </div>
+      ${status(item.status || 'active')}
+    </div>
+    <div class="memory-body">${esc(item.summary || '')}</div>
+    <div class="project-keywords">${(item.keywords || []).slice(0,8).map(keyword => `<span class="evidence-chip">${esc(keyword)}</span>`).join('')}</div>
+    ${memoryActionChips(item.next_actions || [])}
+    ${memoryEventList(item.events || [])}
+    <div class="memory-actions">
+      <button class="btn primary" onclick="setMeetingProject('${escAttr(item.id)}','${escAttr(item.title || '')}')">开会</button>
+      <button class="btn" onclick="projectMemoryAction({action:'update',project_id:'${escAttr(item.id)}',status:'focused'})">关注</button>
+      <button class="btn" onclick="projectMemoryAction({action:'update',project_id:'${escAttr(item.id)}',status:'active'})">活跃</button>
+      <button class="btn" data-query="${escAttr(item.title || item.summary || '')}" onclick="openInsightSearch(this)">问证据</button>
+      <button class="btn danger" onclick="projectMemoryAction({action:'update',project_id:'${escAttr(item.id)}',status:'archived'})">归档</button>
+    </div>
+  </article>`;
+}
+function memoryActionChips(rows){
+  if(!(rows || []).length) return '';
+  return `<div class="project-keywords">${rows.slice(0,5).map(item => `<span class="evidence-chip">${esc(item.title || item.body || 'action')}</span>`).join('')}</div>`;
+}
+function memoryEventList(rows){
+  if(!(rows || []).length) return '';
+  return `<details class="insight-evidence"><summary>${esc(rows.length)} 最近事件</summary><div class="insight-evidence-list">${rows.slice(0,6).map(row => `<div class="insight-evidence-row"><b>${esc(row.title || row.source_ref)}</b><div class="muted">${esc(shortDateTime(row.observed_at || row.created_at || ''))}</div><div>${esc(row.summary || '')}</div></div>`).join('')}</div></details>`;
+}
+function suggestedProjectList(rows){
+  if(!(rows || []).length) return '<div class="empty-state">今天还没有明显项目聚类</div>';
+  return `<div class="meeting-list">${rows.slice(0,8).map(suggestedProjectCard).join('')}</div>`;
+}
+function suggestedProjectCard(item){
+  return `<article class="meeting-card">
+    <div class="meeting-head">
+      <div><div class="meeting-title">${esc(item.title || '未命名项目')}</div><div class="item-meta">${esc(item.event_count || 0)} events · ${esc(Math.round(Number(item.confidence || 0) * 100))}%</div></div>
+    </div>
+    <div class="meeting-body">${esc(item.summary || '')}</div>
+    <div class="project-keywords">${(item.keywords || []).map(keyword => `<span class="evidence-chip">${esc(keyword)}</span>`).join('')}</div>
+    <div class="meeting-actions">
+      <button class="btn primary" data-project="${escAttr(JSON.stringify(item))}" onclick="saveSuggestedProject(this)">写入项目记忆</button>
+      <button class="btn" data-query="${escAttr(item.title || item.summary || '')}" onclick="openInsightSearch(this)">问证据</button>
+    </div>
+  </article>`;
+}
+function memoryStatusOptions(current){
+  return [['active','活跃'], ['focused','关注'], ['paused','暂停'], ['archived','归档'], ['all','全部']].map(([value,label]) => `<option value="${escAttr(value)}" ${current===value?'selected':''}>${esc(label)}</option>`).join('');
+}
+function memoryStatusPills(summary){
+  const rows = [['active','活跃', summary.active || 0], ['focused','关注', summary.focused || 0], ['archived','归档', summary.archived || 0], ['all','全部', summary.total || 0]];
+  return rows.map(([key,label,count]) => `<button class="filter-pill ${state.memoryStatus===key?'active':''}" onclick="setMemoryStatus('${key}')">${esc(label)} <span class="chip-count">${esc(count)}</span></button>`).join('');
+}
+function applyMemoryFilters(){
+  state.memoryDate = $('memoryDate').value || 'today';
+  state.memoryQ = $('memoryQ').value;
+  state.memoryStatus = $('memoryStatus').value || 'active';
+  projectMemory();
+}
+function memoryKey(event){
+  if(event.key === 'Enter'){
+    event.preventDefault();
+    applyMemoryFilters();
+  }
+}
+function setMemoryDate(value){ state.memoryDate = value || 'today'; projectMemory(); }
+function setMemoryStatus(value){ state.memoryStatus = value || 'active'; projectMemory(); }
+async function createProjectMemory(){
+  const payload = {
+    action: 'create',
+    title: $('memoryNewTitle').value,
+    summary: $('memoryNewSummary').value,
+    keywords: $('memoryNewKeywords').value,
+  };
+  const j = await api('/api/project-memory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  toast(j.ok ? '已创建项目记忆' : '创建失败');
+  projectMemory();
+}
+async function saveSuggestedProject(button){
+  const project = JSON.parse(button.dataset.project || '{}');
+  const j = await api('/api/project-memory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save_project',date:state.memoryDate || 'today',project})});
+  toast(j.ok ? '已写入项目记忆' : '写入失败');
+  projectMemory();
+}
+async function projectMemoryAction(payload){
+  const j = await api('/api/project-memory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  toast(j.ok ? '项目记忆已更新' : '更新失败');
+  render();
+}
+async function meetingMode(){
+  const buttons = `<button class="btn" onclick="go('memory')">项目记忆</button><button class="btn" onclick="go('inbox')">Action Inbox</button><button class="btn primary" onclick="meetingMode()">刷新</button>`;
+  setHeader('Meeting Mode','读取中...', buttons);
+  const j = await api('/api/meeting-mode');
+  const active = j.active_meeting;
+  const projects = j.projects || [];
+  const recent = j.recent_meetings || [];
+  $('subtitle').textContent = `${active ? '会议进行中' : '没有进行中的会议'} · ${projects.length} active projects · ${recent.length} recent`;
+  $('view').innerHTML = `
+    <div class="insight-hero">
+      <section class="card meeting-active">
+        ${active ? activeMeetingPanel(active) : startMeetingPanel(projects)}
+      </section>
+      <section class="card">
+        <div class="section-title"><h3>会议项目</h3><span class="muted">${esc(projects.length)} projects</span></div>
+        ${meetingProjectPicker(projects)}
+      </section>
+    </div>
+    <div class="insight-main">
+      <section class="card">
+        <div class="section-title"><h3>最近会议</h3><span class="muted">${esc(recent.length)} sessions</span></div>
+        ${meetingList(recent)}
+      </section>
+      <aside class="insight-side">
+        <section class="card">
+          <div class="section-title"><h3>会议流转</h3><span class="muted">local memory</span></div>
+          <div class="overview-actions">
+            <button class="btn" onclick="go('today')">今天时间线</button>
+            <button class="btn" onclick="go('memory')">项目记忆</button>
+            <button class="btn" onclick="go('inbox')">Action Inbox</button>
+            <button class="btn" onclick="go('search')">证据问答</button>
+          </div>
+        </section>
+      </aside>
+    </div>`;
+}
+function startMeetingPanel(projects){
+  return `<div>
+    <div class="section-title"><h3>开始会议</h3><span class="muted">capture</span></div>
+    <input id="meetingTitle" value="${escAttr(state.meetingTitle || '')}" placeholder="会议标题">
+    <select id="meetingProject" style="margin-top:8px">${meetingProjectOptions(projects, state.meetingProjectId)}</select>
+    <input id="meetingParticipants" placeholder="参与者，用逗号分隔" style="margin-top:8px">
+    <textarea id="meetingAgenda" placeholder="议程 / 想确认的问题" style="margin-top:8px"></textarea>
+    <div class="meeting-actions"><button class="btn primary" onclick="startMeeting()">开始 Meeting Mode</button></div>
+  </div>`;
+}
+function activeMeetingPanel(active){
+  return `<div>
+    <div class="section-title"><h3>${esc(active.title || '会议')}</h3>${status(active.status || 'active')}</div>
+    <div class="item-meta">${esc(shortDateTime(active.started_at || ''))} · ${esc((active.project || {}).title || '未关联项目')}</div>
+    ${active.agenda ? `<div class="meeting-body">${esc(active.agenda)}</div>` : ''}
+    <textarea id="meetingNote" placeholder="记录结论、分歧、行动项。包含“需要/确认/回复/截止”等词会进入 Action Inbox。" style="margin-top:10px"></textarea>
+    <div class="meeting-actions">
+      <button class="btn primary" onclick="addMeetingNote('${escAttr(active.id)}')">记录笔记</button>
+      <button class="btn danger" onclick="endMeeting('${escAttr(active.id)}')">结束并写入项目记忆</button>
+    </div>
+    ${meetingActionList(active.action_items || [])}
+    ${meetingNotes(active.notes || '')}
+  </div>`;
+}
+function meetingProjectPicker(projects){
+  if(!(projects || []).length) return '<div class="empty-state">还没有活跃项目；可以先去项目记忆创建，或直接开始无项目会议。</div>';
+  return `<div class="meeting-list">${projects.slice(0,8).map(project => `<div class="meeting-card"><div class="meeting-head"><div><div class="meeting-title">${esc(project.title)}</div><div class="item-meta">${esc(project.status)} · ${esc(project.evidence_count || 0)} evidence</div></div>${status(project.status)}</div><div class="meeting-actions"><button class="btn" onclick="setMeetingProject('${escAttr(project.id)}','${escAttr(project.title)}')">用于新会议</button></div></div>`).join('')}</div>`;
+}
+function meetingProjectOptions(projects, selected){
+  const rows = [['','不关联项目'], ...(projects || []).map(project => [project.id, project.title])];
+  return rows.map(([id,title]) => `<option value="${escAttr(id)}" ${selected===id?'selected':''}>${esc(title)}</option>`).join('');
+}
+function setMeetingProject(projectId, title){
+  state.meetingProjectId = projectId || '';
+  state.meetingTitle = title ? `${title} meeting` : state.meetingTitle;
+  go('meeting');
+}
+async function startMeeting(){
+  const payload = {
+    action: 'start',
+    title: $('meetingTitle').value,
+    project_id: $('meetingProject').value,
+    participants: $('meetingParticipants').value,
+    agenda: $('meetingAgenda').value,
+  };
+  const j = await api('/api/meeting-mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  toast(j.ok ? 'Meeting Mode 已开始' : '开始失败');
+  state.meetingTitle = '';
+  meetingMode();
+}
+async function addMeetingNote(meetingId){
+  const note = $('meetingNote').value.trim();
+  if(!note) return toast('会议笔记为空');
+  const j = await api('/api/meeting-mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'note',meeting_id:meetingId,note})});
+  toast(j.ok ? '已记录会议笔记' : '记录失败');
+  meetingMode();
+}
+async function endMeeting(meetingId){
+  const note = $('meetingNote') ? $('meetingNote').value.trim() : '';
+  const j = await api('/api/meeting-mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'end',meeting_id:meetingId,note})});
+  toast(j.ok ? '会议已结束并写入本地记忆' : '结束失败');
+  meetingMode();
+}
+function meetingList(rows){
+  if(!(rows || []).length) return '<div class="empty-state">还没有会议记录</div>';
+  return `<div class="meeting-list">${rows.map(meetingCard).join('')}</div>`;
+}
+function meetingCard(item){
+  return `<article class="meeting-card ${esc(item.status || '')}">
+    <div class="meeting-head">
+      <div><div class="meeting-title">${esc(item.title || '会议')}</div><div class="item-meta">${esc(shortDateTime(item.started_at || ''))} · ${esc((item.project || {}).title || '无项目')}</div></div>
+      ${status(item.status || 'ended')}
+    </div>
+    <div class="meeting-body">${esc(item.summary || item.agenda || compactPlain(item.notes || '', 260))}</div>
+    ${meetingActionList(item.action_items || [])}
+  </article>`;
+}
+function meetingActionList(rows){
+  if(!(rows || []).length) return '';
+  return `<div class="project-keywords">${rows.slice(0,6).map(item => `<span class="evidence-chip">${esc(item.title || item.body || 'action')}</span>`).join('')}</div>`;
+}
+function meetingNotes(raw){
+  const lines = String(raw || '').split('\\n').filter(Boolean).slice(-8);
+  if(!lines.length) return '';
+  return `<details class="insight-evidence"><summary>${esc(lines.length)} notes</summary><div class="meeting-note-list">${lines.map(line => `<div class="insight-evidence-row">${esc(line)}</div>`).join('')}</div></details>`;
+}
+function compactPlain(value, limit){
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text.length > limit ? text.slice(0, Math.max(0, limit - 1)) + '…' : text;
+}
 async function projectsWorkbench(){
   const buttons = `<button class="btn" onclick="setProjectDate('today')">今天</button><button class="btn" onclick="setProjectDate('yesterday')">昨天</button><button class="btn" onclick="bulkInsightState('project','archived')">当前归档</button><button class="btn primary" onclick="projectsWorkbench()">刷新</button>`;
   setHeader('项目','读取中...', buttons);
@@ -4322,7 +4818,7 @@ async function projectsWorkbench(){
       <section class="card">
         <div class="section-title"><h3>项目动作</h3><span class="muted">curate</span></div>
         <div class="overview-actions">
-          <button class="btn" onclick="go('suggestions')">行动建议</button>
+          <button class="btn" onclick="go('inbox')">Action Inbox</button>
           <button class="btn" onclick="go('timeline')">时间线</button>
           <button class="btn" onclick="bulkInsightState('project','snoozed')">当前稍后</button>
           <button class="btn danger" onclick="bulkInsightState('project','archived')">当前归档</button>
@@ -4371,8 +4867,9 @@ function projectWorkbenchCard(item){
     </div>
     ${projectNextActions(item.next_actions || [])}
     <div class="insight-actions">
-      <button class="btn primary" data-item-id="${escAttr(item.id)}" data-status="${escAttr(currentStatus)}" data-pinned="${escAttr(pinned)}" onclick="toggleInsightPin(this,'project')">${pinned ? '取消关注' : '关注'}</button>
-      <button class="btn" data-item-id="${escAttr(item.id)}" data-status="${escAttr(currentStatus)}" data-pinned="${escAttr(pinned)}" onclick="setInsightState(this,'project','done')">完成</button>
+	      <button class="btn primary" data-item-id="${escAttr(item.id)}" data-status="${escAttr(currentStatus)}" data-pinned="${escAttr(pinned)}" onclick="toggleInsightPin(this,'project')">${pinned ? '取消关注' : '关注'}</button>
+	      <button class="btn" data-project="${escAttr(JSON.stringify(item))}" onclick="saveSuggestedProject(this)">写入项目记忆</button>
+	      <button class="btn" data-item-id="${escAttr(item.id)}" data-status="${escAttr(currentStatus)}" data-pinned="${escAttr(pinned)}" onclick="setInsightState(this,'project','done')">完成</button>
       <button class="btn" data-item-id="${escAttr(item.id)}" data-status="${escAttr(currentStatus)}" data-pinned="${escAttr(pinned)}" onclick="setInsightState(this,'project','snoozed')">稍后</button>
       <button class="btn" data-query="${escAttr(item.title || item.summary || '')}" onclick="openInsightSearch(this)">问项目证据</button>
       <button class="btn danger" data-item-id="${escAttr(item.id)}" data-status="${escAttr(currentStatus)}" data-pinned="${escAttr(pinned)}" onclick="setInsightState(this,'project','archived')">归档</button>
@@ -4511,8 +5008,11 @@ function projectCategoryBreakdown(rows){
 async function render(){
   if(state.section==='setup') return setup();
   if(state.section==='action') return actionCenter();
+  if(state.section==='inbox') return actionInbox();
   if(state.section==='suggestions') return suggestionInbox();
   if(state.section==='projects') return projectsWorkbench();
+  if(state.section==='memory') return projectMemory();
+  if(state.section==='meeting') return meetingMode();
   if(state.section==='today') return today();
   if(state.section==='overview') return overview();
   if(state.section==='doctor') return doctor();

@@ -273,6 +273,63 @@ class Store:
             );
             CREATE INDEX IF NOT EXISTS idx_insight_states_type_status
                 ON insight_states(item_type, status);
+
+            CREATE TABLE IF NOT EXISTS project_memories (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                summary TEXT,
+                keywords TEXT,
+                people TEXT,
+                next_actions TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_seen_at TEXT,
+                evidence_count INTEGER NOT NULL DEFAULT 0,
+                metadata TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_project_memories_status
+                ON project_memories(status, updated_at);
+            CREATE INDEX IF NOT EXISTS idx_project_memories_last_seen
+                ON project_memories(last_seen_at);
+
+            CREATE TABLE IF NOT EXISTS project_memory_events (
+                id INTEGER PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                event_date TEXT NOT NULL,
+                source_ref TEXT NOT NULL,
+                title TEXT,
+                summary TEXT,
+                observed_at TEXT,
+                created_at TEXT NOT NULL,
+                metadata TEXT,
+                UNIQUE(project_id, source_ref),
+                FOREIGN KEY(project_id) REFERENCES project_memories(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_project_memory_events_project
+                ON project_memory_events(project_id, observed_at);
+
+            CREATE TABLE IF NOT EXISTS meeting_sessions (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                project_id TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                started_at TEXT NOT NULL,
+                ended_at TEXT,
+                participants TEXT,
+                agenda TEXT,
+                notes TEXT,
+                summary TEXT,
+                action_items TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                metadata TEXT,
+                FOREIGN KEY(project_id) REFERENCES project_memories(id) ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_meeting_sessions_status
+                ON meeting_sessions(status, started_at);
+            CREATE INDEX IF NOT EXISTS idx_meeting_sessions_project
+                ON meeting_sessions(project_id, started_at);
             """
         )
         self.ensure_column("speakers", "identity_status", "TEXT NOT NULL DEFAULT 'provisional'")

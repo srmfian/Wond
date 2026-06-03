@@ -139,6 +139,50 @@ def action_center_payload(settings: Any, params: dict[str, str]) -> dict[str, An
         store.close()
 
 
+def action_inbox_payload(settings: Any, params: dict[str, str]) -> dict[str, Any]:
+    window = day_window(settings, params.get("date") or "today")
+    store = Store(settings.db_path)
+    try:
+        observations = visible_observations(settings, store.observations_between(window.start_iso, window.end_iso))
+        activity = list(store.activity_between(window.start_iso, window.end_iso))
+        suggestions = action_suggestions_from_rows(settings, observations, activity, window.target, limit=50)
+        projects = project_clusters_from_rows(settings, observations, activity, window.target, limit=24)
+        repairs = repair_queue_items(settings, store, target_day=window.target, limit=80)
+        quick_tags = quick_tag_items(observations)
+        speakers = speaker_inbox_candidates(settings, store)
+        raw_items: list[dict[str, Any]] = []
+        raw_items.extend(inbox_item_from_suggestion(item) for item in suggestions)
+        raw_items.extend(inbox_item_from_quick_tag(item) for item in quick_tags)
+        raw_items.extend(inbox_item_from_repair(item) for item in repairs)
+        raw_items.extend(inbox_item_from_project(item) for item in projects)
+        raw_items.extend(inbox_item_from_speaker(item) for item in speakers)
+        states = inbox_state_maps(store, raw_items)
+        items = apply_inbox_states(raw_items, states, params)
+        by_type_all = Counter(str(item.get("inbox_type") or "other") for item in raw_items)
+        by_type = Counter(str(item.get("inbox_type") or "other") for item in items)
+        by_priority = Counter(str(item.get("priority") or "low") for item in items)
+        return {
+            "ok": True,
+            "date": window.target.isoformat(),
+            "generated_at": now(settings.timezone).isoformat(timespec="seconds"),
+            "summary": {
+                "total": len(items),
+                "all": len(raw_items),
+                "high": by_priority.get("high", 0),
+                "medium": by_priority.get("medium", 0),
+                "low": by_priority.get("low", 0),
+                "pinned": sum(1 for item in items if (item.get("state") or {}).get("pinned")),
+                "ready_actions": sum(1 for item in items if item.get("action")),
+                "by_type": dict(sorted(by_type.items())),
+                "by_type_all": dict(sorted(by_type_all.items())),
+                "state": inbox_state_summary(raw_items, states),
+            },
+            "items": items,
+        }
+    finally:
+        store.close()
+
+
 def repair_queue_payload(settings: Any, params: dict[str, str] | None = None) -> dict[str, Any]:
     params = params or {}
     target = parse_day(params.get("date") or "today", settings.timezone)
@@ -689,6 +733,213 @@ def apply_insight_states(
     for item in enriched:
         item.pop("_order", None)
     return enriched
+
+
+def speaker_inbox_candidates(settings: Any, store: Store, limit: int = 12) -> list[dict[str, Any]]:
+    speakers = [speaker_quality_item(settings, store, row) for row in store.list_speakers()]
+    items = [
+        item
+        for item in speakers
+        if item.get("review_status") != "low_similarity_hidden" and (int(item.get("score") or 0) < 75 or item.get("issues"))
+    ]
+    items.sort(key=lambda item: (int(item.get("score") or 100), -len(item.get("issues") or []), str(item.get("display_name") or "")))
+    return items[:limit]
+
+
+def inbox_item_from_suggestion(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": item["id"],
+        "item_type": "suggestion",
+        "inbox_type": "suggestion",
+        "priority": item.get("priority") or "low",
+        "title": item.get("title") or "行动建议",
+        "body": item.get("body") or "",
+        "reason": item.get("reason") or "从本地记录中检测到行动语句",
+        "time": item.get("observed_at"),
+        "source": item.get("source"),
+        "kind": item.get("kind"),
+        "category": item.get("category") or "other",
+        "evidence": item.get("evidence") or [],
+        "action": None,
+        "recommended_action": item.get("recommended_action"),
+        "source_item": item,
+    }
+
+
+def inbox_item_from_quick_tag(item: dict[str, Any]) -> dict[str, Any]:
+    tag = str(item.get("tag") or item.get("title") or "tag")
+    lowered = tag.lower()
+    priority = "high" if any(term in lowered for term in ("todo", "important", "urgent", "待办", "重要", "紧急")) else "medium"
+    return {
+        "id": f"quick_tag:{item.get('id')}",
+        "item_type": "quick_tag",
+        "inbox_type": "quick_tag",
+        "priority": priority,
+        "title": item.get("title") or f"Quick tag: {tag}",
+        "body": item.get("note") or "来自手机端快速标注",
+        "reason": "来自你在移动端打的快速标注",
+        "time": item.get("time"),
+        "source": "mobile",
+        "kind": "quick_tag",
+        "category": "feedback",
+        "evidence": [
+            {
+                "id": item.get("source_ref") or item.get("id"),
+                "time": item.get("time"),
+                "title": item.get("title") or tag,
+                "snippet": item.get("note") or "",
+                "source": "mobile",
+                "kind": "quick_tag",
+                "category": "feedback",
+            }
+        ],
+        "action": None,
+        "recommended_action": {"kind": "review", "label": "处理标注"},
+        "source_item": item,
+    }
+
+
+def inbox_item_from_repair(item: dict[str, Any]) -> dict[str, Any]:
+    severity = str(item.get("severity") or "info")
+    priority = {"critical": "high", "warn": "medium", "info": "low"}.get(severity, "low")
+    return {
+        "id": f"repair:{item.get('id')}",
+        "item_type": "repair",
+        "inbox_type": "repair",
+        "priority": priority,
+        "severity": severity,
+        "title": item.get("title") or item.get("id") or "待修复项",
+        "body": item.get("body") or "",
+        "reason": f"{item.get('area') or 'system'} repair",
+        "time": None,
+        "source": item.get("area") or "system",
+        "kind": "repair",
+        "category": item.get("area") or "system",
+        "evidence": item.get("evidence") or [],
+        "action": item.get("action"),
+        "recommended_action": {"kind": "repair", "label": (item.get("action") or {}).get("label") or "检查修复"},
+        "source_item": item,
+    }
+
+
+def inbox_item_from_project(item: dict[str, Any]) -> dict[str, Any]:
+    next_actions = item.get("next_actions") or []
+    priority = "medium" if next_actions or int(item.get("event_count") or 0) >= 3 else "low"
+    span = item.get("time_span") if isinstance(item.get("time_span"), dict) else {}
+    return {
+        "id": item["id"],
+        "item_type": "project",
+        "inbox_type": "project",
+        "priority": priority,
+        "title": item.get("title") or "项目 / 主题",
+        "body": item.get("summary") or "",
+        "reason": f"{item.get('event_count') or 0} 条记录聚成一个主题",
+        "time": span.get("end") or span.get("start"),
+        "source": "project",
+        "kind": "project_cluster",
+        "category": "project",
+        "categories": item.get("categories") or {},
+        "evidence": item.get("evidence") or [],
+        "action": None,
+        "recommended_action": {"kind": "review_project", "label": "打开项目"},
+        "next_actions": next_actions,
+        "source_item": item,
+    }
+
+
+def inbox_item_from_speaker(item: dict[str, Any]) -> dict[str, Any]:
+    recommendations = item.get("recommendations") or []
+    action = None
+    if recommendations:
+        first = recommendations[0]
+        action = {"name": first.get("action"), "args": first.get("args") or {}, "label": first.get("label") or "处理"}
+    score = int(item.get("score") or 0)
+    priority = "high" if score < 55 else "medium"
+    issues = item.get("issues") or []
+    return {
+        "id": f"speaker:{item.get('id')}",
+        "item_type": "speaker",
+        "inbox_type": "speaker",
+        "priority": priority,
+        "title": f"说话人待确认：{item.get('display_name') or item.get('id')}",
+        "body": "、".join(str(issue.get("label") or issue.get("kind")) for issue in issues) or "需要复查说话人证据",
+        "reason": f"speaker quality {score}",
+        "time": item.get("latest_sample_at") or item.get("latest_seen_at") or item.get("first_seen_at"),
+        "source": "speakers",
+        "kind": "speaker_quality",
+        "category": "speakers",
+        "evidence": (item.get("evidence") or {}).get("samples") or [],
+        "action": action,
+        "recommended_action": {"kind": "speaker_review", "label": (action or {}).get("label") or "打开说话人"},
+        "source_item": item,
+    }
+
+
+def inbox_state_maps(store: Store, items: list[dict[str, Any]]) -> dict[str, dict[str, sqlite3.Row]]:
+    item_types = sorted({str(item.get("item_type") or "") for item in items if item.get("item_type")})
+    return {item_type: store.insight_states_for_type(item_type) for item_type in item_types}
+
+
+def apply_inbox_states(
+    items: list[dict[str, Any]],
+    states_by_type: dict[str, dict[str, sqlite3.Row]],
+    params: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    params = params or {}
+    type_filter = str(params.get("type") or params.get("inbox_type") or "all").strip()
+    enriched: list[dict[str, Any]] = []
+    for index, item in enumerate(items):
+        copy = dict(item)
+        item_type = str(copy.get("item_type") or "")
+        copy["state"] = insight_state_for(copy["id"], states_by_type.get(item_type, {}))
+        copy["_order"] = index
+        if type_filter and type_filter != "all" and type_filter not in {str(copy.get("inbox_type") or ""), item_type}:
+            continue
+        if insight_matches_filters(copy, params):
+            enriched.append(copy)
+    enriched.sort(key=inbox_sort_key)
+    for item in enriched:
+        item.pop("_order", None)
+    return enriched
+
+
+def inbox_state_summary(items: list[dict[str, Any]], states_by_type: dict[str, dict[str, sqlite3.Row]]) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    pinned = 0
+    for item in items:
+        item_type = str(item.get("item_type") or "")
+        state = insight_state_for(str(item.get("id") or ""), states_by_type.get(item_type, {}))
+        counts[str(state.get("status") or "open")] += 1
+        if state.get("pinned"):
+            pinned += 1
+    result = {key: int(value) for key, value in sorted(counts.items())}
+    result.setdefault("open", 0)
+    result["active"] = sum(value for key, value in result.items() if key not in {"done", "archived", "dismissed", "pinned"})
+    result["pinned"] = pinned
+    return result
+
+
+def inbox_sort_key(item: dict[str, Any]) -> tuple[Any, ...]:
+    state = item.get("state") or {}
+    timestamp = parse_iso(item.get("time"))
+    return (
+        not bool(state.get("pinned")),
+        insight_status_rank(item),
+        -inbox_priority_value(item),
+        -(timestamp.timestamp() if timestamp else 0),
+        int(item.get("_order") or 0),
+        str(item.get("title") or ""),
+    )
+
+
+def inbox_priority_value(item: dict[str, Any]) -> int:
+    priority = str(item.get("priority") or "")
+    severity = str(item.get("severity") or "")
+    if priority == "high" or severity == "critical":
+        return 3
+    if priority == "medium" or severity == "warn":
+        return 2
+    return 1
 
 
 def insight_state_for(item_id: str, states: dict[str, sqlite3.Row]) -> dict[str, Any]:

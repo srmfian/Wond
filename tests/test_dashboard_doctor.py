@@ -17,6 +17,7 @@ from wond.dashboard import (
     action_speaker_merge_many,
     action_speaker_refresh_sample_confidence,
     action_speaker_unhide,
+    api_insight_state_post,
     api_setup,
     api_setup_token,
     api_settings_update,
@@ -109,6 +110,39 @@ class DashboardDoctorTests(unittest.TestCase):
         self.assertIn("setupGenerateToken", DASHBOARD_HTML)
         self.assertIn("安装全部服务", DASHBOARD_HTML)
         self.assertIn("copyFromButton", DASHBOARD_HTML)
+
+    def test_dashboard_has_action_inbox_and_daily_workbench(self):
+        self.assertIn("['action','每日工作台']", DASHBOARD_HTML)
+        self.assertIn("['inbox','Action Inbox']", DASHBOARD_HTML)
+        self.assertIn("/api/action-inbox", DASHBOARD_HTML)
+        self.assertIn("async function actionInbox", DASHBOARD_HTML)
+        self.assertIn("function inboxCard", DASHBOARD_HTML)
+        self.assertIn("state.inboxDate", DASHBOARD_HTML)
+
+    def test_dashboard_has_project_memory_and_meeting_mode(self):
+        self.assertIn("['memory','项目记忆']", DASHBOARD_HTML)
+        self.assertIn("['meeting','Meeting Mode']", DASHBOARD_HTML)
+        self.assertIn("/api/project-memory", DASHBOARD_HTML)
+        self.assertIn("/api/meeting-mode", DASHBOARD_HTML)
+        self.assertIn("async function projectMemory", DASHBOARD_HTML)
+        self.assertIn("async function meetingMode", DASHBOARD_HTML)
+        self.assertIn("写入项目记忆", DASHBOARD_HTML)
+
+    def test_insight_state_accepts_action_inbox_item_types(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "config.json"
+            config_path.write_text(json.dumps({"data_dir": "data", "timezone": "Asia/Tokyo"}), encoding="utf-8")
+            settings = load_settings(config_path)
+
+            for item_type in ("repair", "quick_tag", "speaker"):
+                result, status = api_insight_state_post(
+                    settings,
+                    {"item_id": f"{item_type}:1", "item_type": item_type, "status": "done", "pinned": True},
+                )
+
+                self.assertEqual(status, HTTPStatus.OK)
+                self.assertEqual(result["state"]["item_type"], item_type)
+                self.assertEqual(result["state"]["status"], "done")
 
     def test_setup_payload_reports_config_token_and_services(self):
         with tempfile.TemporaryDirectory() as tmp:
