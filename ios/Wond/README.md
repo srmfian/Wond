@@ -56,7 +56,7 @@ iPhone:
 
 - Microphone
 - Location, if location capture is enabled
-- Local network access may be requested by iOS when syncing to the Mac
+- Local network access may be requested by iOS when syncing to the Mac on LAN. Tailscale private VPN is the recommended sync path.
 
 ## Installing
 
@@ -92,10 +92,19 @@ python3 -m wond sync-server
 
 In the iPhone app settings, configure:
 
-- Mac sync URL, usually `http://<mac-lan-ip>:8765/upload`
+- Mac sync URL, preferably through Tailscale: `http://<mac-tailscale-ip-or-magicdns-name>:8765/upload`
 - Sync token
-- Wi-Fi-only sync preference
+- Wi-Fi-only sync preference. Turn this off if you want Tailscale sync to work over cellular data.
 - Auto sync
+
+Examples:
+
+```text
+http://100.x.y.z:8765/upload
+http://macbook-name.tailnet-name.ts.net:8765/upload
+```
+
+Use `http://<mac-lan-ip>:8765/upload` only as a same-Wi-Fi fallback. Do not expose the Mac sync server to the public internet or configure router port forwarding for `8765`.
 
 The app creates encrypted `.pcsync` packages. The Mac server decrypts and imports them into Wond's local SQLite database, normally `data/wond.sqlite3`, then can write reports under `data/reports/`.
 

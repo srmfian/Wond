@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 import tomllib
 
-from tools.build_release import package_version
+from tools.build_release import UPDATE_MANAGED_DIRS, UPDATE_MANAGED_FILES, install_command, package_version, update_command
 from wond.version import __version__
 
 
@@ -35,6 +35,37 @@ class VersionTests(unittest.TestCase):
         self.assertNotIn("MARKETING_VERSION = 0.2;", project_text)
         self.assertIn('MARKETING_VERSION = "$(WOND_MARKETING_VERSION)";', project_text)
         self.assertIn('CURRENT_PROJECT_VERSION = "$(WOND_CURRENT_PROJECT_VERSION)";', project_text)
+
+    def test_update_package_preserves_runtime_state_boundary(self):
+        script = update_command("9.9.9")
+
+        self.assertEqual(UPDATE_MANAGED_DIRS, ("wond", "ios", "docs", "tests", "tools"))
+        self.assertNotIn("data", UPDATE_MANAGED_DIRS)
+        self.assertNotIn(".venv", UPDATE_MANAGED_DIRS)
+        self.assertNotIn("config.json", UPDATE_MANAGED_FILES)
+        self.assertIn('PAYLOAD_DIR="$PACKAGE_DIR/payload"', script)
+        self.assertIn('rsync -a --delete "${RSYNC_EXCLUDES[@]}" "$PAYLOAD_DIR/$dir/" "$INSTALL_DIR/$dir/"', script)
+        self.assertNotIn('rsync -a --delete "${RSYNC_EXCLUDES[@]}" "$PAYLOAD_DIR/" "$INSTALL_DIR/"', script)
+        self.assertIn('Protected local files were not replaced: config.json, data/', script)
+        self.assertIn('install-dashboard-agent --load', script)
+
+    def test_installer_uses_system_applications_with_legacy_fallback(self):
+        script = install_command("9.9.9")
+
+        self.assertIn('SYSTEM_INSTALL_DIR="/Applications/Wond"', script)
+        self.assertIn('LEGACY_INSTALL_DIR="$HOME/Applications/Wond"', script)
+        self.assertIn('[ -d "$LEGACY_INSTALL_DIR/wond" ] && [ ! -d "$SYSTEM_INSTALL_DIR/wond" ]', script)
+        self.assertIn('Unable to write $SYSTEM_INSTALL_DIR; falling back to $LEGACY_INSTALL_DIR.', script)
+        self.assertIn('ln -s "$INSTALL_REAL" "$SYSTEM_INSTALL_DIR"', script)
+
+    def test_updater_finds_system_or_legacy_install(self):
+        script = update_command("9.9.9")
+
+        self.assertIn('SYSTEM_INSTALL_DIR="/Applications/Wond"', script)
+        self.assertIn('LEGACY_INSTALL_DIR="$HOME/Applications/Wond"', script)
+        self.assertIn('[ -d "$SYSTEM_INSTALL_DIR/wond" ]', script)
+        self.assertIn('[ -d "$LEGACY_INSTALL_DIR/wond" ]', script)
+        self.assertIn('Checked default locations: $SYSTEM_INSTALL_DIR and $LEGACY_INSTALL_DIR.', script)
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ Wond 是一个本机优先的个人上下文系统。它把 Mac 上的日常活�
 
 从 GitHub Release 下载 `Wond-0.2.0-macos.zip`，解压后双击 `install.command`。
 
-安装器会把 Wond 复制到 `~/Applications/Wond`，创建专用 Python virtualenv，初始化 `config.json`，并可选择一次性加载 dashboard、sync server 和后台 monitor 的 LaunchAgent。重复安装会保留已有 `config.json`、`.venv/` 和 `data/`。
+安装器会优先把 Wond 复制到 `/Applications/Wond`，创建专用 Python virtualenv，初始化 `config.json`，并可选择一次性加载 dashboard、sync server 和后台 monitor 的 LaunchAgent。如果这台 Mac 已经有旧版 `~/Applications/Wond` 安装，安装器会自动复用旧目录，并尽量在 `/Applications/Wond` 创建一个指向旧目录的入口；如果当前用户没有权限写入 `/Applications/Wond`，会回退到 `~/Applications/Wond`。重复安装会保留已有 `config.json`、`.venv/` 和 `data/`。
 
 如果需要指定安装目录：
 
@@ -31,9 +31,25 @@ WOND_INSTALL_DIR=/path/to/Wond ./install.command
 
 安装后常用入口：
 
-- `~/Applications/Wond/Start Wond Dashboard.command`
-- `~/Applications/Wond/Install Wond Services.command`
-- `~/Applications/Wond/Run Wond Doctor.command`
+- `/Applications/Wond/Start Wond Dashboard.command`
+- `/Applications/Wond/Install Wond Services.command`
+- `/Applications/Wond/Run Wond Doctor.command`
+
+如果安装器提示使用了旧目录或回退目录，上面的入口会在 `~/Applications/Wond/` 下。
+
+### 更新包
+
+已经安装过 Wond 的用户不需要重新跑完整安装包。从 GitHub Release 下载 `Wond-0.2.0-macos-update.zip`，解压后双击 `Update Wond.command`。
+
+更新包只替换 Wond 发布管理的应用文件和命令入口，并复用现有安装目录。它不会替换 `config.json`、`data/`、本地数据库、报告、移动端同步导入、speaker samples 或模型缓存。已有 `.venv` 会被复用；如果新版本依赖发生变化，更新过程可能会在这个虚拟环境里刷新依赖元数据。
+
+更新包会自动寻找 `/Applications/Wond` 和旧版 `~/Applications/Wond`。如果 Wond 不在这两个默认目录：
+
+```bash
+WOND_INSTALL_DIR=/path/to/Wond "./Update Wond.command"
+```
+
+更新完成后，如果原来已经安装过 dashboard、sync server 或 monitor 的 LaunchAgent，更新包会自动重载这些服务。
 
 ### 源码运行
 
@@ -75,7 +91,22 @@ python3 -m wond monitor --once
 python3 -m wond sync-server
 ```
 
-默认 dashboard 地址是 `http://127.0.0.1:8787`，移动端同步服务默认监听 `0.0.0.0:8765`。
+默认 dashboard 地址是 `http://127.0.0.1:8787`，移动端同步服务默认监听 `0.0.0.0:8765`。推荐把 iPhone 到 Mac 的 sync 流量放在 Tailscale 私有 VPN 里，而不是把 `8765` 暴露到公网或做路由器端口转发。
+
+推荐的 iPhone sync URL：
+
+```text
+http://<mac-tailscale-ip-or-magicdns-name>:8765/upload
+```
+
+例如：
+
+```text
+http://100.x.y.z:8765/upload
+http://macbook-name.tailnet-name.ts.net:8765/upload
+```
+
+同一 Wi-Fi/LAN 下也可以临时使用 `http://<mac-lan-ip>:8765/upload`，但长期使用建议走 Tailscale。`0.0.0.0` 绑定会让 sync server 接受 Tailscale 网卡上的连接；如果只想允许 Tailscale 访问，可以把 `mobile_sync.host` 改成 Mac 的 Tailscale IP。
 
 ## 数据目录
 
@@ -269,6 +300,14 @@ Mac 端启动同步服务：
 python3 -m wond sync-server
 ```
 
+推荐先在 Mac 和 iPhone 上安装 Tailscale，并让它们加入同一个 tailnet。然后在 iPhone app 设置里填写 Mac 的 Tailscale 地址：
+
+```text
+http://<mac-tailscale-ip-or-magicdns-name>:8765/upload
+```
+
+LAN 地址 `http://<mac-lan-ip>:8765/upload` 只建议作为同一 Wi-Fi 下的 fallback。不要把 `8765` 端口直接暴露到公网；即使 sync 包有 AES-GCM 加密和 HMAC token，公网暴露仍然会扩大攻击面。若需要通过蜂窝网络同步，请确认 Tailscale 已连接，并关闭 iPhone app 里的 Wi-Fi-only sync。
+
 移动端同步使用：
 
 - AES-GCM 加密 `.pcsync` 包。
@@ -374,7 +413,7 @@ python3 -m wond search-index
 ## 常见排查
 
 - `status` 显示 agent 未运行：重新执行 `install-agent --load` 或检查 LaunchAgent 日志。
-- sync server 不通：先打开 `http://127.0.0.1:8765/health` 或执行 `python3 -m wond status`。
+- sync server 不通：先在 Mac 本机打开 `http://127.0.0.1:8765/health` 或执行 `python3 -m wond status`；再从 iPhone 检查 Tailscale 是否在线，并确认 sync URL 是 `http://<mac-tailscale-ip-or-magicdns-name>:8765/upload`。
 - dashboard 不通：重新执行 `install-dashboard-agent --load`，再打开 `http://127.0.0.1:8787`。
 - 音频分析失败：检查外置模型盘、`HF_HOME`、`ffmpeg`、MLX Audio、Ollama 和 LaunchAgent 的 PATH。
 - Location 报 `kCLErrorDomain error 1`：iOS 定位权限被拒绝或未授予足够权限。
