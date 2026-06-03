@@ -149,6 +149,25 @@ class DashboardDoctorTests(unittest.TestCase):
         self.assertIn("speaker_refresh_representatives", DASHBOARD_HTML)
         self.assertIn("自动整理后复查", DASHBOARD_HTML)
 
+    def test_speaker_training_empty_install_is_not_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "config.json"
+            config_path.write_text(
+                json.dumps({"data_dir": "data", "timezone": "Asia/Tokyo"}),
+                encoding="utf-8",
+            )
+            settings = load_settings(config_path)
+
+            payload = speaker_training_payload(settings, {})
+
+        self.assertEqual(payload["summary"]["training_status"], "empty")
+        self.assertEqual(payload["summary"]["training_score"], 0)
+        self.assertEqual(payload["summary"]["blocked_stages"], 0)
+        self.assertFalse(any(stage["status"] == "blocked" for stage in payload["stages"]))
+        self.assertEqual(payload["stages"][0]["status"], "empty")
+        self.assertIn("empty:'未开始'", DASHBOARD_HTML)
+        self.assertIn("emptyTraining ? '未开始'", DASHBOARD_HTML)
+
     def test_speaker_training_payload_reports_loop_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

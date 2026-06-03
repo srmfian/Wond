@@ -3357,13 +3357,16 @@ async function speakerTraining(){
   const rows = filterTrainingSpeakers(j.speakers || []);
   const sampleRows = filterTrainingSamples(j.sample_queue || []);
   window.__speakerTraining = j;
-  $('subtitle').textContent = `${summary.training_score || 0}/100 · ${summary.needs_work_speakers || 0} need work · ${summary.missing_embeddings || 0} missing embeddings`;
+  const emptyTraining = summary.training_status === 'empty';
+  const trainingScoreValue = emptyTraining ? '未开始' : (summary.training_score || 0);
+  const trainingScoreHint = emptyTraining ? '0 blocked' : `${summary.blocked_stages || 0} blocked`;
+  $('subtitle').textContent = emptyTraining ? `未开始 · ${summary.samples || 0} samples · ${summary.missing_embeddings || 0} missing embeddings` : `${summary.training_score || 0}/100 · ${summary.needs_work_speakers || 0} need work · ${summary.missing_embeddings || 0} missing embeddings`;
   $('view').innerHTML = `
     <div class="training-hero">
       <section class="card">
         <div class="section-title"><h3>训练状态</h3><span class="muted">${esc((j.model || {}).embedding_model || '-')}</span></div>
         <div class="training-kpis">
-          ${trainingKpi('训练分数', summary.training_score || 0, `${summary.blocked_stages || 0} blocked`)}
+          ${trainingKpi('训练分数', trainingScoreValue, trainingScoreHint)}
           ${trainingKpi('稳定身份', `${summary.stable_speakers || 0}/${summary.speakers || 0}`, `${summary.needs_work_speakers || 0} need work`)}
           ${trainingKpi('样本/Embedding', `${summary.samples || 0}/${summary.embeddings || 0}`, `${summary.missing_embeddings || 0} missing`)}
           ${trainingKpi('代表样本', summary.representative_samples || 0, `${summary.low_confidence_samples || 0} low confidence`)}
@@ -3419,7 +3422,7 @@ function trainingStageGrid(stages){
   </div>`).join('')}</div>`;
 }
 function trainingStageStatus(value){
-  return ({ok:'OK', ready:'待运行', blocked:'卡住'})[value || 'ok'] || value;
+  return ({ok:'OK', ready:'待运行', blocked:'卡住', empty:'未开始'})[value || 'ok'] || value;
 }
 function filterTrainingSpeakers(rows){
   const view = state.speakerTrainingView || 'needs_work';

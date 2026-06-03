@@ -60,6 +60,21 @@ def training_summary(
     representative = sum(1 for row in samples if row["representative"])
     blocked = sum(1 for stage in stages if stage["status"] == "blocked")
     ready = sum(1 for stage in stages if stage["status"] == "ready")
+    if total == 0 and not samples:
+        return {
+            "training_status": "empty",
+            "speakers": 0,
+            "stable_speakers": 0,
+            "needs_work_speakers": 0,
+            "samples": 0,
+            "embeddings": embedding_count,
+            "missing_embeddings": 0,
+            "low_confidence_samples": 0,
+            "representative_samples": 0,
+            "training_score": 0,
+            "blocked_stages": 0,
+            "ready_stages": 0,
+        }
     stage_score = 100 - blocked * 18 - ready * 8
     coverage = int((stable / total) * 100) if total else 0
     sample_health = 100
@@ -77,6 +92,7 @@ def training_summary(
         "missing_embeddings": missing_embeddings,
         "low_confidence_samples": low_confidence,
         "representative_samples": representative,
+        "training_status": "active",
         "training_score": score,
         "blocked_stages": blocked,
         "ready_stages": ready,
@@ -94,11 +110,12 @@ def training_stages(speakers: list[dict[str, Any]], samples: list[dict[str, Any]
     review_needed = [row for row in speakers if row["training_state"] in {"review_needed", "pending_auto"}]
     hidden = [row for row in speakers if row["training_state"] == "hidden"]
     stable = [row for row in speakers if row["training_state"] in {"stable", "confirmed"}]
+    empty = speaker_count == 0 and sample_count == 0
     return [
         stage(
             "sample_bank",
             "样本库",
-            "blocked" if speaker_count and sample_count == 0 else "ready" if sample_count < max(2, speaker_count) else "ok",
+            "empty" if empty else "blocked" if speaker_count and sample_count == 0 else "ready" if sample_count < max(2, speaker_count) else "ok",
             f"{sample_count} samples / {playable} playable",
             {"name": "analyze_audio", "args": {"date": "today", "limit": 20}, "label": "分析音频"},
         ),
@@ -133,7 +150,7 @@ def training_stages(speakers: list[dict[str, Any]], samples: list[dict[str, Any]
         stage(
             "review",
             "人工确认",
-            "ready" if review_needed else "ok" if stable else "blocked",
+            "empty" if empty else "ready" if review_needed else "ok" if stable else "blocked",
             f"{len(stable)} stable / {len(review_needed)} needs review",
             None,
         ),
