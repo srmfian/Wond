@@ -19,7 +19,7 @@ Wond 是一个本机优先的个人上下文系统。它把 Mac 上的日常活�
 
 ### 一键安装包
 
-从 GitHub Release 下载 `Wond-0.2.0-macos.zip`，解压后双击 `install.command`。
+从 GitHub Release 下载 `Wond-0.3.0-macos.zip`，解压后双击 `install.command`。
 
 安装器会优先把 Wond 复制到 `/Applications/Wond`，创建专用 Python virtualenv，初始化 `config.json`，并可选择一次性加载 dashboard、sync server 和后台 monitor 的 LaunchAgent。如果这台 Mac 已经有旧版 `~/Applications/Wond` 安装，安装器会自动复用旧目录，并尽量在 `/Applications/Wond` 创建一个指向旧目录的入口；如果当前用户没有权限写入 `/Applications/Wond`，会回退到 `~/Applications/Wond`。重复安装会保留已有 `config.json`、`.venv/` 和 `data/`。
 
@@ -39,7 +39,7 @@ WOND_INSTALL_DIR=/path/to/Wond ./install.command
 
 ### 更新包
 
-已经安装过 Wond 的用户不需要重新跑完整安装包。从 GitHub Release 下载 `Wond-0.2.0-macos-update.zip`，解压后双击 `Update Wond.command`。
+已经安装过 Wond 的用户不需要重新跑完整安装包。从 GitHub Release 下载 `Wond-0.3.0-macos-update.zip`，解压后双击 `Update Wond.command`。
 
 更新包只替换 Wond 发布管理的应用文件和命令入口，并复用现有安装目录。它不会替换 `config.json`、`data/`、本地数据库、报告、移动端同步导入、speaker samples 或模型缓存。已有 `.venv` 会被复用；如果新版本依赖发生变化，更新过程可能会在这个虚拟环境里刷新依赖元数据。
 
