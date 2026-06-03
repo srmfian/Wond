@@ -31,6 +31,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
     private var activeSegmentID: String?
     private var uiTimer: Timer?
     private var locationTimer: Timer?
+    private var reverseGeocodeRetryTask: Task<Void, Never>?
     private var interruptionRecoveryTask: Task<Void, Never>?
     private var isRequestingOneShotLocation = false
     private var lastReverseGeocodeLocation: CLLocation?
@@ -91,6 +92,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
     deinit {
         uiTimer?.invalidate()
         locationTimer?.invalidate()
+        reverseGeocodeRetryTask?.cancel()
         interruptionRecoveryTask?.cancel()
         locationManager.stopUpdatingLocation()
         locationManager.stopMonitoringSignificantLocationChanges()
@@ -1060,23 +1062,45 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
     }
 
     private func reverseGeocode(_ point: LocationPoint, from location: CLLocation) {
-        guard !geocoder.isGeocoding else { return }
+        guard !geocoder.isGeocoding else {
+            scheduleReverseGeocodeRetry(point, from: location)
+            return
+        }
         let now = Date()
         if let lastReverseGeocodeAt,
            let lastReverseGeocodeLocation,
            now.timeIntervalSince(lastReverseGeocodeAt) < 30,
            location.distance(from: lastReverseGeocodeLocation) < 50 {
+            if let update = nearbyAddressUpdate(for: location, excludingLocationID: point.id) {
+                applyAddressUpdate(update, toLocationID: point.id)
+            } else {
+                showCoordinateFallback(forLocationID: point.id)
+            }
             return
         }
         lastReverseGeocodeAt = now
         lastReverseGeocodeLocation = location
 
         geocoder.reverseGeocodeLocation(location, preferredLocale: Locale.autoupdatingCurrent) { [weak self] placemarks, error in
-            guard error == nil, let placemark = placemarks?.first else { return }
+            guard error == nil, let placemark = placemarks?.first else {
+                Task { @MainActor in
+                    self?.showCoordinateFallback(forLocationID: point.id)
+                }
+                return
+            }
             let update = Self.addressUpdate(from: placemark)
             Task { @MainActor in
                 self?.applyAddressUpdate(update, toLocationID: point.id)
             }
+        }
+    }
+
+    private func scheduleReverseGeocodeRetry(_ point: LocationPoint, from location: CLLocation) {
+        reverseGeocodeRetryTask?.cancel()
+        reverseGeocodeRetryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.reverseGeocode(point, from: location)
         }
     }
 
@@ -1103,6 +1127,41 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
         }
         locationStatusMessage = point.label
         save()
+    }
+
+    private func showCoordinateFallback(forLocationID locationID: String) {
+        guard let index = locations.firstIndex(where: { $0.id == locationID }) else { return }
+        locationStatusMessage = locations[index].coordinateLabel
+        save()
+    }
+
+    private func nearbyAddressUpdate(for location: CLLocation, excludingLocationID locationID: String) -> LocationAddressUpdate? {
+        let candidates = locations.compactMap { point -> (LocationPoint, CLLocation)? in
+            guard point.id != locationID,
+                  point.address != nil || point.placeName != nil else { return nil }
+            let candidateLocation = CLLocation(latitude: point.latitude, longitude: point.longitude)
+            return (point, candidateLocation)
+        }
+        guard let nearest = candidates.min(by: {
+            location.distance(from: $0.1) < location.distance(from: $1.1)
+        }),
+              location.distance(from: nearest.1) < 50 else { return nil }
+        return addressUpdate(from: nearest.0)
+    }
+
+    private func addressUpdate(from point: LocationPoint) -> LocationAddressUpdate {
+        LocationAddressUpdate(
+            address: point.address,
+            placeName: point.placeName,
+            locality: point.locality,
+            administrativeArea: point.administrativeArea,
+            subAdministrativeArea: point.subAdministrativeArea,
+            subLocality: point.subLocality,
+            thoroughfare: point.thoroughfare,
+            subThoroughfare: point.subThoroughfare,
+            isoCountryCode: point.isoCountryCode,
+            country: point.country
+        )
     }
 
     private func attachLocationToActiveRecords(_ point: LocationPoint) {
