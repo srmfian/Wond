@@ -17,6 +17,26 @@ Wond 是一个本机优先的个人上下文系统。它把 Mac 上的日常活�
 
 ## 快速开始
 
+### 一键安装包
+
+从 GitHub Release 下载 `Wond-0.1.0-macos.zip`，解压后双击 `install.command`。
+
+安装器会把 Wond 复制到 `~/Applications/Wond`，创建专用 Python virtualenv，初始化 `config.json`，并可选择一次性加载 dashboard、sync server 和后台 monitor 的 LaunchAgent。重复安装会保留已有 `config.json`、`.venv/` 和 `data/`。
+
+如果需要指定安装目录：
+
+```bash
+WOND_INSTALL_DIR=/path/to/Wond ./install.command
+```
+
+安装后常用入口：
+
+- `~/Applications/Wond/Start Wond Dashboard.command`
+- `~/Applications/Wond/Install Wond Services.command`
+- `~/Applications/Wond/Run Wond Doctor.command`
+
+### 源码运行
+
 ```bash
 python3 -m wond init
 python3 -m wond collect

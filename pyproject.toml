@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wond"
+version = "0.1.0"
+description = "Local-first personal context system for macOS and iPhone capture."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Wond contributors" }
+]
+dependencies = [
+  "numpy>=1.26"
+]
+
+[project.urls]
+Homepage = "https://github.com/srmfian/Wond"
+Repository = "https://github.com/srmfian/Wond"
+
+[project.scripts]
+wond = "wond.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["wond*"]
