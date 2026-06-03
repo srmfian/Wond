@@ -21,6 +21,7 @@ from .mobile import event_to_observation, ingest_mobile_export, load_mobile_even
 from .store import Store
 from .summarizer import write_daily_report
 from .timeutil import utc_iso
+from .version import __version__
 
 
 @dataclass
@@ -77,7 +78,7 @@ def run_sync_server(settings: Settings, host: str | None = None, port: int | Non
 
 def make_handler(settings: Settings):
     class SyncRequestHandler(BaseHTTPRequestHandler):
-        server_version = "WondSync/0.1"
+        server_version = f"WondSync/{__version__}"
 
         def do_GET(self) -> None:
             if self.path == "/health":

@@ -43,6 +43,13 @@ python3 -m wond collect
 python3 -m wond summarize
 ```
 
+基础安装声明了 dashboard、sync 加密和 SQLite 工作流需要的 Python 依赖。本地音频模型和 speaker 工具链是可选 extras：
+
+```bash
+python3 -m pip install -e ".[local-audio,speaker]"
+python3 -m pip install -e ".[eval]"  # only for tools/evaluate_wespeaker_resnet34.py
+```
+
 常用检查命令：
 
 ```bash

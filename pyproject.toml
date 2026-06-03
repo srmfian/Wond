@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wond"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Local-first personal context system for macOS and iPhone capture."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,7 +13,28 @@ authors = [
   { name = "Wond contributors" }
 ]
 dependencies = [
+  "cryptography>=42",
   "numpy>=1.26"
+]
+
+[project.optional-dependencies]
+local-audio = [
+  "mlx-audio; platform_system == 'Darwin'",
+  "mlx-whisper; platform_system == 'Darwin'",
+  "soundfile>=0.12",
+  "speechbrain>=1.0",
+  "transformers>=4.41",
+  "torch>=2.2"
+]
+speaker = [
+  "soundfile>=0.12",
+  "speechbrain>=1.0",
+  "torch>=2.2"
+]
+eval = [
+  "onnxruntime>=1.17",
+  "torch>=2.2",
+  "torchaudio>=2.2"
 ]
 
 [project.urls]
@@ -25,3 +46,6 @@ wond = "wond.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["wond*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "wond.version.__version__" }

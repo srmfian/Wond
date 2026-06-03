@@ -6,24 +6,6 @@ import Foundation
 import UIKit
 @preconcurrency import UserNotifications
 
-private struct SyncExportPlan {
-    var export: MobileExport
-    var eventFingerprints: [String: String]
-}
-
-private struct LocationAddressUpdate {
-    var address: String?
-    var placeName: String?
-    var locality: String?
-    var administrativeArea: String?
-    var subAdministrativeArea: String?
-    var subLocality: String?
-    var thoroughfare: String?
-    var subThoroughfare: String?
-    var isoCountryCode: String?
-    var country: String?
-}
-
 @MainActor
 final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, CLLocationManagerDelegate, UNUserNotificationCenterDelegate {
     @Published private(set) var state: CaptureState = .idle
@@ -42,9 +24,9 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
     let syncService = SyncService()
 
     private let fileManager = FileManager.default
+    private let persistence = CaptureStorePersistence()
     private let locationManager = CLLocationManager()
     private let geocoder = CLGeocoder()
-    private let databaseFileName = "capture-store.json"
     private var recorder: AVAudioRecorder?
     private var activeSegmentID: String?
     private var uiTimer: Timer?
@@ -56,12 +38,8 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
     private var shouldResumeAfterInterruption = false
     private var interruptionRecoveryAttempts = 0
     private var didFailLoadingDatabase = false
-    private var databaseURL: URL {
-        documentsURL.appendingPathComponent(databaseFileName)
-    }
-
     private var documentsURL: URL {
-        fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        persistence.documentsURL
     }
 
     override init() {
@@ -1455,19 +1433,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
     }
 
     private func repairDocumentsDirectoryIfNeeded() {
-        let url = documentsURL
-        var isDirectory = ObjCBool(false)
-        if fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) {
-            guard !isDirectory.boolValue else { return }
-            let migratedStore = try? Data(contentsOf: url)
-            try? fileManager.removeItem(at: url)
-            try? fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-            if let migratedStore {
-                try? migratedStore.write(to: url.appendingPathComponent(databaseFileName), options: .atomic)
-            }
-            return
-        }
-        try? fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        persistence.repairDocumentsDirectoryIfNeeded()
     }
 
     private func requestMicrophonePermission() async -> Bool {
@@ -1515,37 +1481,15 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
     }
 
     private func recordingFolderURL(for sessionID: String, at date: Date) -> URL {
-        let day = Self.dayFormatter.string(from: date)
-        return documentsURL
-            .appendingPathComponent("recordings", isDirectory: true)
-            .appendingPathComponent(day, isDirectory: true)
-            .appendingPathComponent(sessionID, isDirectory: true)
+        persistence.recordingFolderURL(for: sessionID, at: date, dayFormatter: Self.dayFormatter)
     }
 
     private func relativePath(forRecordingFile fileURL: URL) -> String {
-        let root = documentsURL.path
-        let path = fileURL.path
-        if path.hasPrefix(root) {
-            return String(path.dropFirst(root.count + 1))
-        }
-        return fileURL.lastPathComponent
+        persistence.relativePath(forRecordingFile: fileURL)
     }
 
     private func pruneEmptyRecordingFolders() {
-        let recordings = documentsURL.appendingPathComponent("recordings", isDirectory: true)
-        guard let enumerator = fileManager.enumerator(
-            at: recordings,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
-        let folders = enumerator.compactMap { $0 as? URL }.filter { url in
-            (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-        }
-        for folder in folders.sorted(by: { $0.path.count > $1.path.count }) {
-            if (try? fileManager.contentsOfDirectory(atPath: folder.path).isEmpty) == true {
-                try? fileManager.removeItem(at: folder)
-            }
-        }
+        persistence.pruneEmptyRecordingFolders()
     }
 
     private func save() {
@@ -1562,18 +1506,15 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
             settings: settings
         )
         do {
-            let data = try JSONEncoder.captureEncoder(prettyPrinted: true).encode(database)
-            try data.write(to: databaseURL, options: .atomic)
+            try persistence.save(database)
         } catch {
             lastError = error.localizedDescription
         }
     }
 
     private func load() {
-        guard fileManager.fileExists(atPath: databaseURL.path) else { return }
         do {
-            let data = try Data(contentsOf: databaseURL)
-            let database = try JSONDecoder.captureDecoder().decode(CaptureDatabase.self, from: data)
+            guard let database = try persistence.load() else { return }
             sessions = database.sessions
             segments = database.segments
             bookmarks = database.bookmarks
@@ -1582,17 +1523,9 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
             settings = database.settings
         } catch {
             didFailLoadingDatabase = true
-            backupUnreadableDatabase()
+            persistence.backupUnreadableDatabase(timestamp: filenameTimestamp(Date()))
             lastError = error.localizedDescription
         }
-    }
-
-    private func backupUnreadableDatabase() {
-        guard fileManager.fileExists(atPath: databaseURL.path) else { return }
-        let backupURL = documentsURL.appendingPathComponent(
-            "capture-store-unreadable-\(filenameTimestamp(Date())).json"
-        )
-        try? fileManager.copyItem(at: databaseURL, to: backupURL)
     }
 
     private func filterToday<T>(_ values: [T], date keyPath: KeyPath<T, Date>) -> [T] {

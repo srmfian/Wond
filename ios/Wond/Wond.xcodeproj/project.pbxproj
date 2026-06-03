@@ -15,6 +15,7 @@
 		AA0000000000000000000106 /* ShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000206 /* ShareSheet.swift */; };
 		AA0000000000000000000107 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000207 /* Models.swift */; };
 		AA0000000000000000000108 /* CaptureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000208 /* CaptureStore.swift */; };
+		AA0000000000000000000122 /* CaptureStoreSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000224 /* CaptureStoreSupport.swift */; };
 		AA0000000000000000000110 /* ZipWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000210 /* ZipWriter.swift */; };
 		AA0000000000000000000111 /* Formatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000211 /* Formatters.swift */; };
 		AA0000000000000000000112 /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000213 /* SyncService.swift */; };
@@ -62,6 +63,7 @@
 		AA0000000000000000000206 /* ShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheet.swift; sourceTree = "<group>"; };
 		AA0000000000000000000207 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		AA0000000000000000000208 /* CaptureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureStore.swift; sourceTree = "<group>"; };
+		AA0000000000000000000224 /* CaptureStoreSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureStoreSupport.swift; sourceTree = "<group>"; };
 		AA0000000000000000000210 /* ZipWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZipWriter.swift; sourceTree = "<group>"; };
 		AA0000000000000000000211 /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Formatters.swift; sourceTree = "<group>"; };
 		AA0000000000000000000212 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -76,6 +78,7 @@
 		AA0000000000000000000220 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA0000000000000000000221 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA0000000000000000000223 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
+		AA0000000000000000000225 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
 		AA0000000000000000000301 /* Wond.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Wond.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000000000000000000302 /* WondWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WondWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -119,6 +122,7 @@
 				AA0000000000000000000206 /* ShareSheet.swift */,
 				AA0000000000000000000207 /* Models.swift */,
 				AA0000000000000000000208 /* CaptureStore.swift */,
+				AA0000000000000000000224 /* CaptureStoreSupport.swift */,
 				AA0000000000000000000213 /* SyncService.swift */,
 				AA0000000000000000000215 /* WatchTransferService.swift */,
 				AA0000000000000000000222 /* AskView.swift */,
@@ -155,6 +159,7 @@
 		AA0000000000000000000505 /* Config */ = {
 			isa = PBXGroup;
 			children = (
+				AA0000000000000000000225 /* Version.xcconfig */,
 				AA0000000000000000000223 /* Signing.xcconfig */,
 			);
 			path = Config;
@@ -268,6 +273,7 @@
 				AA0000000000000000000106 /* ShareSheet.swift in Sources */,
 				AA0000000000000000000107 /* Models.swift in Sources */,
 				AA0000000000000000000108 /* CaptureStore.swift in Sources */,
+				AA0000000000000000000122 /* CaptureStoreSupport.swift in Sources */,
 				AA0000000000000000000112 /* SyncService.swift in Sources */,
 				AA0000000000000000000114 /* WatchTransferService.swift in Sources */,
 				AA0000000000000000000121 /* AskView.swift in Sources */,
@@ -420,7 +426,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = "$(WOND_CURRENT_PROJECT_VERSION)";
 				DEVELOPMENT_TEAM = "$(WOND_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Wond/Info.plist;
@@ -429,7 +435,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2;
+				MARKETING_VERSION = "$(WOND_MARKETING_VERSION)";
 				PRODUCT_BUNDLE_IDENTIFIER = "$(WOND_IOS_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -445,7 +451,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = "$(WOND_CURRENT_PROJECT_VERSION)";
 				DEVELOPMENT_TEAM = "$(WOND_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Wond/Info.plist;
@@ -454,7 +460,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2;
+				MARKETING_VERSION = "$(WOND_MARKETING_VERSION)";
 				PRODUCT_BUNDLE_IDENTIFIER = "$(WOND_IOS_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -470,7 +476,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = "$(WOND_CURRENT_PROJECT_VERSION)";
 				DEVELOPMENT_TEAM = "$(WOND_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = WondWatchApp/Info.plist;
@@ -478,7 +484,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2;
+				MARKETING_VERSION = "$(WOND_MARKETING_VERSION)";
 				PRODUCT_BUNDLE_IDENTIFIER = "$(WOND_WATCH_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
@@ -497,7 +503,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = "$(WOND_CURRENT_PROJECT_VERSION)";
 				DEVELOPMENT_TEAM = "$(WOND_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = WondWatchApp/Info.plist;
@@ -505,7 +511,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.2;
+				MARKETING_VERSION = "$(WOND_MARKETING_VERSION)";
 				PRODUCT_BUNDLE_IDENTIFIER = "$(WOND_WATCH_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;

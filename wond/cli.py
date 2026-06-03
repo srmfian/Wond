@@ -65,6 +65,7 @@ from .store import Store
 from .summarizer import write_daily_report
 from .sync_server import cleanup_mobile_sync_storage, run_sync_server
 from .timeutil import day_bounds, local_iso, parse_day
+from .version import __version__
 
 
 def add_common_args(parser: argparse.ArgumentParser) -> None:
@@ -926,6 +927,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="wond",
         description="Wond local memory assistant.",
     )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_init = sub.add_parser("init", help="Create config and database.")

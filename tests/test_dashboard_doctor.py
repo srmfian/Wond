@@ -26,6 +26,7 @@ from wond.dashboard import (
     is_local_http_permission_error,
     ollama_check,
 )
+from wond.speaker_training import speaker_training_payload
 from wond.privacy import privacy_center_payload
 from wond.store import Observation, Store
 
@@ -136,6 +137,105 @@ class DashboardDoctorTests(unittest.TestCase):
         self.assertIn("privacySetBool", DASHBOARD_HTML)
         self.assertIn("privacyQuickRetention", DASHBOARD_HTML)
         self.assertIn("执行保留", DASHBOARD_HTML)
+
+    def test_dashboard_has_speaker_training_loop(self):
+        self.assertIn("['speaker-training','Speaker 训练']", DASHBOARD_HTML)
+        self.assertIn("/api/speaker-training", DASHBOARD_HTML)
+        self.assertIn("async function speakerTraining", DASHBOARD_HTML)
+        self.assertIn("runSpeakerTrainingCycle", DASHBOARD_HTML)
+        self.assertIn("setSpeakerTrainingView", DASHBOARD_HTML)
+        self.assertIn("speaker_repair_embeddings", DASHBOARD_HTML)
+        self.assertIn("speaker_refresh_sample_confidence", DASHBOARD_HTML)
+        self.assertIn("speaker_refresh_representatives", DASHBOARD_HTML)
+        self.assertIn("自动整理后复查", DASHBOARD_HTML)
+
+    def test_speaker_training_payload_reports_loop_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "data_dir": "data",
+                        "timezone": "Asia/Tokyo",
+                        "speaker_recognition": {
+                            "embedding_backend": "fixture",
+                            "embedding_model": "test-model",
+                            "auto_merge_threshold": 0.68,
+                            "candidate_threshold": 0.68,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            settings = load_settings(config_path)
+            store = Store(settings.db_path)
+            try:
+                alice = store.ensure_speaker_for_alias("fixture:alice", default_name="Alice", label="Alice")
+                bob = store.ensure_speaker_for_alias("fixture:bob", default_name="Speaker 2", label="Speaker 2")
+                store.conn.execute(
+                    "UPDATE speakers SET identity_status = ?, confidence = ?, metadata = ? WHERE id = ?",
+                    (
+                        "named",
+                        0.92,
+                        json.dumps({"speaker_review_status": "confirmed"}, ensure_ascii=False),
+                        int(alice["id"]),
+                    ),
+                )
+                alice_sample = store.add_speaker_sample(
+                    speaker_id=int(alice["id"]),
+                    observation_id=None,
+                    source_key="sample:alice",
+                    media_path="alice-full.m4a",
+                    sample_path="alice-sample.m4a",
+                    start_seconds=1.0,
+                    end_seconds=3.0,
+                    transcript="hello from alice",
+                    metadata={"sample_confidence": 0.91, "representative_sample": True},
+                )
+                bob_sample = store.add_speaker_sample(
+                    speaker_id=int(bob["id"]),
+                    observation_id=None,
+                    source_key="sample:bob",
+                    media_path="bob-full.m4a",
+                    sample_path="bob-sample.m4a",
+                    start_seconds=4.0,
+                    end_seconds=6.0,
+                    transcript="bob voice",
+                    metadata={"sample_confidence": 0.2},
+                )
+                store.add_speaker_embedding(
+                    speaker_id=int(alice["id"]),
+                    sample_id=int(alice_sample["id"]),
+                    model="fixture:test-model",
+                    vector=[0.1, 0.2, 0.3],
+                )
+                store.record_speaker_match_decision(
+                    source_speaker_id=int(bob["id"]),
+                    target_speaker_id=int(alice["id"]),
+                    sample_id=int(bob_sample["id"]),
+                    model="fixture:test-model",
+                    score=0.57,
+                    threshold=0.68,
+                    status="candidate",
+                )
+            finally:
+                store.close()
+
+            payload = speaker_training_payload(settings, {})
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["model"]["embedding_model"], "fixture:test-model")
+        self.assertEqual(payload["summary"]["speakers"], 2)
+        self.assertEqual(payload["summary"]["stable_speakers"], 1)
+        self.assertEqual(payload["summary"]["missing_embeddings"], 1)
+        self.assertEqual(payload["summary"]["low_confidence_samples"], 1)
+        self.assertEqual(payload["summary"]["representative_samples"], 1)
+        by_stage = {stage["key"]: stage for stage in payload["stages"]}
+        self.assertEqual(by_stage["embedding"]["status"], "blocked")
+        self.assertTrue(any(row["training_state"] == "confirmed" for row in payload["speakers"]))
+        self.assertTrue(any("missing_embedding" in row["issues"] for row in payload["sample_queue"]))
+        self.assertEqual(payload["recent_matches"][0]["status"], "candidate")
 
     def test_privacy_payload_reports_sensitive_sources_and_retention(self):
         with tempfile.TemporaryDirectory() as tmp:

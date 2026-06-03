@@ -26,14 +26,14 @@ def run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def package_version() -> str:
-    tree = ast.parse((ROOT / "wond" / "__init__.py").read_text(encoding="utf-8"))
+    tree = ast.parse((ROOT / "wond" / "version.py").read_text(encoding="utf-8"))
     for node in tree.body:
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Name) and target.id == "__version__":
                     if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
                         return node.value.value
-    raise RuntimeError("Could not find wond.__version__")
+    raise RuntimeError("Could not find wond.version.__version__")
 
 
 def tracked_files() -> list[Path]:
