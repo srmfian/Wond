@@ -1,0 +1,8 @@
+// Shared, non-secret defaults for the iOS project.
+// Put personal signing values in Signing.local.xcconfig; that file is ignored.
+
+WOND_DEVELOPMENT_TEAM =
+WOND_IOS_BUNDLE_ID = com.example.Wond
+WOND_WATCH_BUNDLE_ID = $(WOND_IOS_BUNDLE_ID).watchkitapp
+
+#include? "Signing.local.xcconfig"

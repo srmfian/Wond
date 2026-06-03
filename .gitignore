@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environments and local tool installs.
+.venv/
+venv/
+
+# IDE/editor local metadata.
+.idea/
+
+# macOS
+.DS_Store
+
+# Local personal data and machine-specific setup.
+data/
+config.json
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite3
+*.db
+*.m4a
+*.wav
+*.mp4
+*.mov
+*.zip
+
+# Local Apple signing material.
+ios/Wond/Config/Signing.local.xcconfig
+*.mobileprovision
+*.p12
+*.pem
+*.key
+
+# Xcode local state and build outputs.
+ios/Wond/build/
+ios/Wond/DerivedData/
+xcuserdata/
+*.xcuserstate
