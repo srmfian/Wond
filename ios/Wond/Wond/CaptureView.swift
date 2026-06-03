@@ -26,7 +26,7 @@ struct CaptureView: View {
                         }
                     }
                     Button {
-                        store.addBookmark(note: bookmarkNote.isEmpty ? "Marked on iPhone" : bookmarkNote)
+                        store.addBookmark(note: bookmarkNote.isEmpty ? WondL10n.t("Marked on iPhone") : bookmarkNote)
                         bookmarkNote = ""
                     } label: {
                         Label("Add Bookmark", systemImage: "bookmark.fill")
@@ -111,7 +111,7 @@ struct CaptureView: View {
                         LabeledContent("Last sync", value: "\(CaptureFormatters.day(lastSyncAt)) \(CaptureFormatters.clock(lastSyncAt))")
                     }
                     if let status = store.settings.lastSyncStatus ?? store.syncService.lastStatus {
-                        Text(status)
+                        Text(WondL10n.t(status))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -251,25 +251,25 @@ struct CaptureView: View {
     private var statusPillTitle: String {
         switch store.state {
         case .recording:
-            return "Live"
+            return WondL10n.t("Live")
         case .paused:
-            return "Paused"
+            return WondL10n.t("Paused")
         case .idle:
-            return "Ready"
+            return WondL10n.t("Ready")
         case .interrupted:
-            return "Interrupted"
+            return WondL10n.t("Interrupted")
         case .permissionNeeded:
-            return "Permission"
+            return WondL10n.t("Permission")
         case .failed:
-            return "Error"
+            return WondL10n.t("Error")
         }
     }
 
     private var sessionSubtitle: String {
         guard let session = store.currentSession else {
-            return "Ready to start a new session"
+            return WondL10n.t("Ready to start a new session")
         }
-        return "Started \(CaptureFormatters.clock(session.startedAt))"
+        return WondL10n.format("Started %@", CaptureFormatters.clock(session.startedAt))
     }
 
     private var segmentProgress: Double {
@@ -278,22 +278,22 @@ struct CaptureView: View {
     }
 
     private var syncButtonTitle: String {
-        store.syncService.isUploading ? "Syncing to Mac" : "Sync to Mac Now"
+        store.syncService.isUploading ? WondL10n.t("Syncing to Mac") : WondL10n.t("Sync to Mac Now")
     }
 
     private var locationTitle: String {
         guard store.settings.locationMode != .off else {
-            return "Location off"
+            return WondL10n.t("Location off")
         }
         if let location = store.latestLocation {
-            return location.address ?? location.placeName ?? store.locationStatusMessage ?? "Resolving address"
+            return location.address ?? location.placeName ?? store.locationStatusMessage.map { WondL10n.t($0) } ?? WondL10n.t("Resolving address")
         }
-        return store.locationStatusMessage ?? "Waiting for location"
+        return store.locationStatusMessage.map { WondL10n.t($0) } ?? WondL10n.t("Waiting for location")
     }
 
     private var locationSubtitle: String {
         guard store.settings.locationMode != .off else {
-            return "No place attached"
+            return WondL10n.t("No place attached")
         }
         if let location = store.latestLocation {
             return "\(store.settings.locationMode.title) - \(CaptureFormatters.clock(location.observedAt))"
@@ -324,7 +324,7 @@ private struct CaptureMetricTile: View {
             Text(value)
                 .font(.title2.weight(.semibold))
                 .monospacedDigit()
-            Text(title)
+            Text(WondL10n.t(title))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -344,9 +344,9 @@ private struct StatusSummaryRow: View {
     var body: some View {
         Label {
             VStack(alignment: .leading, spacing: 3) {
-                Text(title)
+                Text(WondL10n.t(title))
                     .lineLimit(2)
-                Text(subtitle)
+                Text(WondL10n.t(subtitle))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)

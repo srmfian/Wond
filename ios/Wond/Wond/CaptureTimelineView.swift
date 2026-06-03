@@ -65,7 +65,7 @@ struct CaptureTimelineView: View {
             Button {
                 Task { await refreshMacStatus() }
             } label: {
-                Label(isRefreshingMacStatus ? "Refreshing Mac Status" : "Refresh Mac Status", systemImage: "arrow.clockwise")
+                Label(isRefreshingMacStatus ? WondL10n.t("Refreshing Mac Status") : WondL10n.t("Refresh Mac Status"), systemImage: "arrow.clockwise")
             }
             .disabled(isRefreshingMacStatus)
 
@@ -74,7 +74,7 @@ struct CaptureTimelineView: View {
             }
 
             if let status = store.syncService.lastStatus ?? store.settings.lastSyncStatus {
-                Text(status)
+                Text(WondL10n.t(status))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -87,9 +87,9 @@ struct CaptureTimelineView: View {
 
             ForEach(store.syncService.lastMacStatus?.failures.prefix(2).map { $0 } ?? []) { failure in
                 VStack(alignment: .leading, spacing: 4) {
-                    Label(failure.title ?? "Audio analysis failed", systemImage: "exclamationmark.triangle")
+                    Label(WondL10n.t(failure.title ?? "Audio analysis failed"), systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.orange)
-                    Text(failure.error ?? "No failure reason")
+                    Text(WondL10n.t(failure.error ?? "No failure reason"))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .lineLimit(3)
@@ -211,39 +211,41 @@ struct CaptureTimelineView: View {
 
     private var macStatusTitle: String {
         if store.settings.remoteSyncURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Not set"
+            return WondL10n.t("Not set")
         }
         if store.syncService.lastMacStatusError != nil {
-            return "Issue"
+            return WondL10n.t("Issue")
         }
         if let status = store.syncService.lastMacStatus {
-            return (status.macOnline ?? status.ok) ? "Online" : "Offline"
+            return (status.macOnline ?? status.ok) ? WondL10n.t("Online") : WondL10n.t("Offline")
         }
-        return "Unknown"
+        return WondL10n.t("Unknown")
     }
 
     private var macStatusTint: Color {
-        switch macStatusTitle {
-        case "Online":
-            return .green
-        case "Issue", "Offline":
+        if store.syncService.lastMacStatusError != nil {
             return .red
-        default:
+        }
+        guard !store.settings.remoteSyncURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .secondary
         }
+        if let status = store.syncService.lastMacStatus {
+            return (status.macOnline ?? status.ok) ? .green : .red
+        }
+        return .secondary
     }
 
     private var audioStatusTitle: String {
         guard let audio = store.syncService.lastMacStatus?.audio else {
-            return "Pending"
+            return WondL10n.t("Pending")
         }
         if audio.complete {
-            return "Done"
+            return WondL10n.t("Done")
         }
         if audio.errors > 0 {
-            return "\(audio.errors) err"
+            return WondL10n.format("%d err", audio.errors)
         }
-        return "\(audio.pending) left"
+        return WondL10n.format("%d left", audio.pending)
     }
 
     private var audioStatusTint: Color {
@@ -311,13 +313,13 @@ private enum TodayTimeFilter: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .all:
-            return "All"
+            return WondL10n.t("All")
         case .morning:
-            return "AM"
+            return WondL10n.t("AM")
         case .afternoon:
-            return "PM"
+            return WondL10n.t("PM")
         case .evening:
-            return "Night"
+            return WondL10n.t("Night")
         }
     }
 
@@ -360,15 +362,15 @@ private struct TodayTimelineRow: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 8) {
-                    Text(item.category)
+                    Text(WondL10n.t(item.category))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(item.tint)
-                    Text(item.title)
+                    Text(WondL10n.t(item.title))
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(2)
                 }
                 if let subtitle = item.subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
+                    Text(WondL10n.t(subtitle))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -399,7 +401,7 @@ private struct TodayStatusTile: View {
                 .font(.title3.weight(.semibold))
                 .minimumScaleFactor(0.75)
                 .lineLimit(1)
-            Text(title)
+            Text(WondL10n.t(title))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

@@ -1,0 +1,3 @@
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "Wondはバックグラウンド録音が続いている間も、近くの場所名と住所を付加できます。";
+"NSLocationWhenInUseUsageDescription" = "位置記録が有効なとき、Wondは近くの場所名と住所を収集内容に付加します。";
+"NSMicrophoneUsageDescription" = "Wondはあなたが明示的に開始した音声セグメントを録音し、書き出しまたは削除するまで端末内に保持します。";

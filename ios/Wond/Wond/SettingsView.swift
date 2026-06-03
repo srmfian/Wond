@@ -47,7 +47,7 @@ struct SettingsView: View {
                         LabeledContent("Updated", value: "\(CaptureFormatters.day(location.observedAt)) \(CaptureFormatters.clock(location.observedAt))")
                     }
                     if let status = store.locationStatusMessage {
-                        Text(status)
+                        Text(WondL10n.t(status))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -87,7 +87,7 @@ struct SettingsView: View {
                         LabeledContent("Last sync", value: "\(CaptureFormatters.day(lastSyncAt)) \(CaptureFormatters.clock(lastSyncAt))")
                     }
                     if let status = store.settings.lastSyncStatus ?? store.syncService.lastStatus {
-                        Text(status)
+                        Text(WondL10n.t(status))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -190,27 +190,27 @@ struct SettingsView: View {
 
     private func retentionTitle(_ value: Int) -> String {
         if value == 0 {
-            return "Forever"
+            return WondL10n.t("Forever")
         }
         if value == 1 {
-            return "1 day"
+            return WondL10n.t("1 day")
         }
-        return "\(value) days"
+        return WondL10n.format("%d days", value)
     }
 
     private var quietScheduleOverview: String {
-        guard store.settings.sleepQuietHoursEnabled else { return "Off" }
+        guard store.settings.sleepQuietHoursEnabled else { return WondL10n.t("Off") }
         let enabledCount = store.settings.sleepQuietSchedule.filter(\.enabled).count
-        if enabledCount == 0 { return "No active days" }
-        if enabledCount == 7 { return "Every day" }
-        return "\(enabledCount) active days"
+        if enabledCount == 0 { return WondL10n.t("No active days") }
+        if enabledCount == 7 { return WondL10n.t("Every day") }
+        return WondL10n.format("%d active days", enabledCount)
     }
 
     private var macSyncOverview: String {
         if store.settings.autoSyncEnabled {
-            return store.settings.wifiOnlyAutoSync ? "Auto-sync, Wi-Fi only" : "Auto-sync on any network"
+            return store.settings.wifiOnlyAutoSync ? WondL10n.t("Auto-sync, Wi-Fi only") : WondL10n.t("Auto-sync on any network")
         }
-        return "Manual sync"
+        return WondL10n.t("Manual sync")
     }
 }
 
@@ -222,8 +222,8 @@ private struct SettingsSummaryRow: View {
     var body: some View {
         Label {
             VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                Text(subtitle)
+                Text(WondL10n.t(title))
+                Text(WondL10n.t(subtitle))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -414,7 +414,7 @@ private struct MacSyncSettingsView: View {
                     LabeledContent("Last sync", value: "\(CaptureFormatters.day(lastSyncAt)) \(CaptureFormatters.clock(lastSyncAt))")
                 }
                 if let status = store.settings.lastSyncStatus ?? store.syncService.lastStatus {
-                    Text(status)
+                    Text(WondL10n.t(status))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -455,12 +455,12 @@ private struct MacSyncSettingsView: View {
 private enum QuietScheduleFormatter {
     static func summary(for interval: SleepQuietInterval) -> String {
         if !interval.enabled {
-            return "Disabled"
+            return WondL10n.t("Disabled")
         }
         let startDayOffset = quietDayOffset(for: interval.startMinute)
         let endDayOffset = quietDayOffset(for: interval.endMinute)
         if interval.startMinute == interval.endMinute {
-            return "\(dayPrefix(for: startDayOffset))all day"
+            return "\(dayPrefix(for: startDayOffset))\(WondL10n.t("all day"))"
         }
         if startDayOffset == endDayOffset {
             return "\(dayPrefix(for: startDayOffset))\(formattedMinute(interval.startMinute)) - \(formattedMinute(interval.endMinute))"
@@ -492,7 +492,7 @@ private enum QuietScheduleFormatter {
     }
 
     private static func dayPrefix(for offset: Int) -> String {
-        offset == 1 ? "next day " : ""
+        offset == 1 ? WondL10n.t("next day ") : ""
     }
 
     private static let timeFormatter: DateFormatter = {

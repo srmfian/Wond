@@ -55,7 +55,7 @@ struct AskView: View {
 
                 if let response {
                     Section("Answer") {
-                        Text(response.answer?.isEmpty == false ? response.answer! : "No answer")
+                        Text(response.answer?.isEmpty == false ? response.answer! : WondL10n.t("No answer"))
                             .textSelection(.enabled)
                     }
 
@@ -65,7 +65,7 @@ struct AskView: View {
                                 LabeledContent("Mode", value: mode)
                             }
                             if let status = retrieval.status {
-                                LabeledContent("Status", value: status)
+                                LabeledContent("Status", value: WondL10n.t(status))
                             }
                             if let model = retrieval.model, !model.isEmpty {
                                 LabeledContent("Model", value: model)
@@ -120,7 +120,7 @@ struct AskView: View {
         do {
             response = try await store.syncService.ask(question: value)
         } catch {
-            errorMessage = "Ask failed: \(error.localizedDescription)"
+            errorMessage = WondL10n.format("Ask failed: %@", error.localizedDescription)
         }
     }
 }
@@ -160,15 +160,15 @@ private struct AskCitationRow: View {
 
     private var title: String {
         if citation.type == "report" {
-            return citation.name ?? pathName ?? "Report"
+            return citation.name ?? pathName ?? WondL10n.t("Report")
         }
         if let source = citation.source, let kind = citation.kind {
             return "\(source) / \(kind)"
         }
         if let id = citation.observationID {
-            return "Observation \(id)"
+            return WondL10n.format("Observation %d", id)
         }
-        return citation.type?.capitalized ?? "Citation"
+        return citation.type.map { WondL10n.t($0.capitalized) } ?? WondL10n.t("Citation")
     }
 
     private var detail: String {

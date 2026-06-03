@@ -15,12 +15,12 @@ enum CaptureFormatters {
         let minutes = (value % 3600) / 60
         let remainingSeconds = value % 60
         if hours > 0 {
-            return "\(hours)h \(minutes)m"
+            return WondL10n.format("%dh %dm", hours, minutes)
         }
         if minutes > 0 {
-            return "\(minutes)m \(remainingSeconds)s"
+            return WondL10n.format("%dm %ds", minutes, remainingSeconds)
         }
-        return "\(remainingSeconds)s"
+        return WondL10n.format("%ds", remainingSeconds)
     }
 
     static func bytes(_ value: Int64?) -> String {

@@ -34,7 +34,7 @@ struct SpeakerReviewView: View {
                             sampleRow(sample)
                         }
                     } header: {
-                        Text("Speaker \(speaker.id)")
+                        Text(WondL10n.format("Speaker %d", speaker.id))
                     }
                 }
             }
@@ -111,7 +111,7 @@ struct SpeakerReviewView: View {
             .disabled(!sample.hasAudio || loadingSampleID != nil)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(sample.transcript?.isEmpty == false ? sample.transcript! : "No transcript")
+                Text(sample.transcript?.isEmpty == false ? sample.transcript! : WondL10n.t("No transcript"))
                     .font(.body)
                     .lineLimit(4)
                 Text(sampleMeta(sample))
@@ -131,9 +131,9 @@ struct SpeakerReviewView: View {
             for speaker in speakers where names[speaker.id] == nil {
                 names[speaker.id] = ""
             }
-            statusMessage = speakers.isEmpty ? "No speakers are ready for naming." : nil
+            statusMessage = speakers.isEmpty ? WondL10n.t("No speakers are ready for naming.") : nil
         } catch {
-            statusMessage = "Review refresh failed: \(error.localizedDescription)"
+            statusMessage = WondL10n.format("Review refresh failed: %@", error.localizedDescription)
         }
     }
 
@@ -147,9 +147,9 @@ struct SpeakerReviewView: View {
             try await store.syncService.nameSpeaker(id: speaker.id, displayName: name)
             speakers.removeAll { $0.id == speaker.id }
             names[speaker.id] = nil
-            statusMessage = "Named \(name)."
+            statusMessage = WondL10n.format("Named %@.", name)
         } catch {
-            statusMessage = "Name update failed: \(error.localizedDescription)"
+            statusMessage = WondL10n.format("Name update failed: %@", error.localizedDescription)
         }
     }
 
@@ -164,7 +164,7 @@ struct SpeakerReviewView: View {
             player.prepareToPlay()
             player.play()
         } catch {
-            statusMessage = "Sample playback failed: \(error.localizedDescription)"
+            statusMessage = WondL10n.format("Sample playback failed: %@", error.localizedDescription)
         }
     }
 
@@ -180,7 +180,7 @@ struct SpeakerReviewView: View {
     }
 
     private func confidenceText(_ value: Double?) -> String {
-        guard let value else { return "No score" }
+        guard let value else { return WondL10n.t("No score") }
         return value.formatted(.percent.precision(.fractionLength(0...1)))
     }
 
@@ -193,8 +193,8 @@ struct SpeakerReviewView: View {
             parts.append("\(start.formatted(.number.precision(.fractionLength(1))))-\(end.formatted(.number.precision(.fractionLength(1))))s")
         }
         if !sample.hasAudio {
-            parts.append("Audio unavailable")
+            parts.append(WondL10n.t("Audio unavailable"))
         }
-        return parts.isEmpty ? "Sample" : parts.joined(separator: " / ")
+        return parts.isEmpty ? WondL10n.t("Sample") : parts.joined(separator: " / ")
     }
 }

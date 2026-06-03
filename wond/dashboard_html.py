@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 DASHBOARD_HTML = r"""<!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -604,7 +604,7 @@ DASHBOARD_HTML = r"""<!doctype html>
     .action-kpi { padding: 14px; border-right: 1px solid var(--line); min-width: 0; }
     .action-kpi:last-child { border-right: 0; }
     .action-kpi .value { font-size: 26px; font-weight: 800; line-height: 1.1; overflow-wrap: anywhere; }
-    .action-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) repeat(5, auto); gap: 8px; align-items: center; }
+    .action-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-items: center; }
     .action-toolbar input { width: 100%; min-width: 0; }
     .action-main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr); gap: 14px; align-items: start; margin-top: 14px; }
     .action-stack, .action-side { display: grid; gap: 14px; min-width: 0; }
@@ -808,7 +808,7 @@ DASHBOARD_HTML = r"""<!doctype html>
   </aside>
   <main>
     <div class="topbar">
-      <div><h2 id="title">总览</h2><div id="subtitle" class="subtitle"></div></div>
+      <div><h2 id="title">Overview</h2><div id="subtitle" class="subtitle"></div></div>
       <div class="toolbar" id="toolbar"></div>
     </div>
     <div id="view"></div>
@@ -818,52 +818,891 @@ DASHBOARD_HTML = r"""<!doctype html>
 <div id="buttonTooltip" class="button-tooltip" role="tooltip"></div>
 <script>
 const sections = [
-  ['today','今天'], ['action','每日工作台'], ['projects','项目'], ['audio','音频'], ['files','资料'], ['search','搜索问答'], ['setup','设置向导']
+  ['today','今天'], ['action','行动'], ['search','资料'], ['audio','音频'], ['setup','系统']
 ];
 const childSections = [
-  ['inbox','Action Inbox'], ['memory','项目记忆'], ['meeting','Meeting Mode'],
+  ['inbox','处理队列'], ['projects','项目聚类'], ['memory','项目记忆'], ['meeting','会议'],
   ['speaker-training','Speaker 训练'], ['speakers','说话人'],
-  ['sources','来源'], ['reports','报告'],
-  ['privacy','隐私与保留'], ['sync','手机同步'], ['doctor','Doctor'], ['settings','设置']
+  ['files','文件'], ['sources','来源'], ['reports','报告'],
+  ['privacy','隐私与保留'], ['sync','手机同步'], ['doctor','诊断'], ['settings','配置']
 ];
 const utilitySections = [
   ['overview','总览'], ['timeline','时间线'], ['recycle','回收箱'], ['maintenance','记录维护']
 ];
 const allSections = [...sections, ...childSections, ...utilitySections];
+const languageStorageKey = 'wond.dashboard.language';
+const supportedLanguages = [
+  ['en', 'English'],
+  ['zh', '中文'],
+  ['ja', '日本語'],
+  ['ko', '한국어']
+];
+function normalizeLanguage(value){
+  const lang = String(value || '').toLowerCase();
+  return supportedLanguages.some(([code]) => code === lang) ? lang : 'en';
+}
+function readLanguagePreference(){
+  try { return normalizeLanguage(localStorage.getItem(languageStorageKey) || 'en'); }
+  catch { return 'en'; }
+}
+let activeLanguage = readLanguagePreference();
+const translationRows = [
+  ['总览','Overview','概要','개요'],
+  ['今天','Today','今日','오늘'],
+  ['昨天','Yesterday','昨日','어제'],
+  ['行动','Action','アクション','작업'],
+  ['资料','Knowledge','資料','자료'],
+  ['音频','Audio','音声','오디오'],
+  ['系统','System','システム','시스템'],
+  ['日常','Daily','日常','일상'],
+  ['记忆','Memory','記憶','기억'],
+  ['处理队列','Inbox','処理キュー','처리 대기열'],
+  ['项目聚类','Projects','プロジェクトクラスタ','프로젝트 클러스터'],
+  ['项目记忆','Project Memory','プロジェクト記憶','프로젝트 기억'],
+  ['会议','Meeting','ミーティング','회의'],
+  ['Speaker 训练','Speaker Training','話者トレーニング','화자 훈련'],
+  ['Speaker 训练闭环','Speaker Training Loop','話者トレーニングループ','화자 훈련 루프'],
+  ['说话人','Speakers','話者','화자'],
+  ['文件','Files','ファイル','파일'],
+  ['来源','Sources','ソース','소스'],
+  ['报告','Reports','レポート','보고서'],
+  ['隐私与保留','Privacy & Retention','プライバシーと保持','개인정보 및 보존'],
+  ['手机同步','Mobile Sync','モバイル同期','모바일 동기화'],
+  ['诊断','Doctor','診断','진단'],
+  ['配置','Settings','設定','설정'],
+  ['时间线','Timeline','タイムライン','타임라인'],
+  ['回收箱','Recycle Bin','ごみ箱','휴지통'],
+  ['记录维护','Maintenance','記録メンテナンス','기록 유지관리'],
+  ['日内时间线','Day Timeline','日内タイムライン','일일 타임라인'],
+  ['原始记录','Raw Records','生レコード','원본 기록'],
+  ['行动总览','Action Overview','アクション概要','작업 개요'],
+  ['资料问答','Knowledge Q&A','資料Q&A','자료 Q&A'],
+  ['录音队列','Recording Queue','録音キュー','녹음 대기열'],
+  ['说话人整理','Speaker Cleanup','話者整理','화자 정리'],
+  ['训练闭环','Training Loop','トレーニングループ','훈련 루프'],
+  ['启动向导','Setup Guide','セットアップガイド','설정 가이드'],
+  ['隐私保留','Privacy Retention','プライバシー保持','개인정보 보존'],
+  ['维护','Maintenance','メンテナンス','유지관리'],
+  ['系统总览','System Overview','システム概要','시스템 개요'],
+  ['全部来源','All sources','すべてのソース','모든 소스'],
+  ['全部类型','All types','すべての種類','모든 유형'],
+  ['全部优先级','All priorities','すべての優先度','모든 우선순위'],
+  ['高优先级','High priority','高優先度','높은 우선순위'],
+  ['中优先级','Medium priority','中優先度','중간 우선순위'],
+  ['低优先级','Low priority','低優先度','낮은 우선순위'],
+  ['全部','All','すべて','전체'],
+  ['活跃','Active','アクティブ','활성'],
+  ['未处理','Open','未処理','미처리'],
+  ['稍后','Snoozed','後で','나중에'],
+  ['已完成','Done','完了','완료'],
+  ['已忽略','Dismissed','無視済み','무시됨'],
+  ['已归档','Archived','アーカイブ済み','보관됨'],
+  ['置顶','Pinned','ピン留め','고정됨'],
+  ['建议','Suggestion','提案','제안'],
+  ['快速标注','Quick Tag','クイックタグ','빠른 태그'],
+  ['修复','Repair','修復','수정'],
+  ['项目','Project','プロジェクト','프로젝트'],
+  ['高','High','高','높음'],
+  ['中','Medium','中','중간'],
+  ['低','Low','低','낮음'],
+  ['开启','On','オン','켜짐'],
+  ['关闭','Off','オフ','꺼짐'],
+  ['启用','Enabled','有効','활성화'],
+  ['停用','Disabled','無効','비활성'],
+  ['使用中','In use','使用中','사용 중'],
+  ['备用','Fallback','予備','대체'],
+  ['读取中...','Loading...','読み込み中...','읽는 중...'],
+  ['刷新','Refresh','更新','새로고침'],
+  ['刷新状态','Refresh status','状態を更新','상태 새로고침'],
+  ['刷新今日报告','Refresh today report','今日のレポートを更新','오늘 보고서 새로고침'],
+  ['刷新日报','Refresh daily report','日報を更新','일일 보고서 새로고침'],
+  ['采集','Collect','収集','수집'],
+  ['采集一次','Collect once','一度収集','한 번 수집'],
+  ['采集并写报告','Collect and write report','収集してレポート作成','수집 후 보고서 작성'],
+  ['分析音频','Analyze audio','音声を分析','오디오 분석'],
+  ['分析 5 条','Analyze 5','5件分析','5개 분석'],
+  ['分析 10 条','Analyze 10','10件分析','10개 분석'],
+  ['分析 20 条','Analyze 20','20件分析','20개 분석'],
+  ['分析 50 条','Analyze 50','50件分析','50개 분석'],
+  ['查找','Find','検索','찾기'],
+  ['搜索','Search','検索','검색'],
+  ['底层时间线','Raw timeline','生タイムライン','원본 타임라인'],
+  ['写入长期记忆','Save to memory','長期記憶に保存','장기 기억에 저장'],
+  ['生成新 token','Generate new token','新しいtokenを生成','새 token 생성'],
+  ['安装全部服务','Install all services','すべてのサービスをインストール','모든 서비스 설치'],
+  ['安装同步服务','Install sync service','同期サービスをインストール','동기화 서비스 설치'],
+  ['安装采集 Agent','Install collector agent','収集Agentをインストール','수집 Agent 설치'],
+  ['安装 Dashboard','Install Dashboard','Dashboardをインストール','Dashboard 설치'],
+  ['安装','Install','インストール','설치'],
+  ['复制','Copy','コピー','복사'],
+  ['复制 token','Copy token','tokenをコピー','token 복사'],
+  ['复制 URL','Copy URL','URLをコピー','URL 복사'],
+  ['隐藏 token','Hide token','tokenを隠す','token 숨기기'],
+  ['打开处理队列','Open inbox','処理キューを開く','처리 대기열 열기'],
+  ['执行第一条修复','Run first repair','最初の修復を実行','첫 수정 실행'],
+  ['证据问答','Evidence Q&A','証拠Q&A','증거 Q&A'],
+  ['今天时间线','Today timeline','今日のタイムライン','오늘 타임라인'],
+  ['查看全部','View all','すべて表示','전체 보기'],
+  ['当前完成','Mark current done','現在を完了にする','현재 항목 완료'],
+  ['当前稍后','Snooze current','現在を後回し','현재 항목 나중에'],
+  ['当前忽略','Dismiss current','現在を無視','현재 항목 무시'],
+  ['完成','Done','完了','완료'],
+  ['取消置顶','Unpin','ピン留め解除','고정 해제'],
+  ['问证据','Ask evidence','証拠を質問','증거 질문'],
+  ['问项目证据','Ask project evidence','プロジェクト証拠を質問','프로젝트 증거 질문'],
+  ['忽略','Dismiss','無視','무시'],
+  ['保存备注','Save note','メモを保存','메모 저장'],
+  ['关注','Focus','注目','집중'],
+  ['取消关注','Unfocus','注目解除','집중 해제'],
+  ['归档','Archive','アーカイブ','보관'],
+  ['写入项目记忆','Save to project memory','プロジェクト記憶に保存','프로젝트 기억에 저장'],
+  ['开会','Start meeting','会議を開始','회의 시작'],
+  ['创建记忆','Create memory','記憶を作成','기억 생성'],
+  ['开始会议','Start meeting','会議を開始','회의 시작'],
+  ['开始会议记录','Start meeting notes','会議メモを開始','회의 기록 시작'],
+  ['记录笔记','Add note','メモを記録','메모 기록'],
+  ['结束并写入项目记忆','End and save to memory','終了して記憶に保存','종료 후 기억에 저장'],
+  ['首次配置进度','Setup progress','初期設定の進捗','초기 설정 진행률'],
+  ['完成度','Completion','完了率','완료율'],
+  ['快捷操作','Quick actions','クイック操作','빠른 작업'],
+  ['检查清单','Checklist','チェックリスト','체크리스트'],
+  ['iPhone 连接','iPhone connection','iPhone接続','iPhone 연결'],
+  ['Mac 服务','Mac services','Macサービス','Mac 서비스'],
+  ['本机路径','Local paths','ローカルパス','로컬 경로'],
+  ['同步 Token','Sync token','同期token','동기화 token'],
+  ['已配置','Configured','設定済み','설정됨'],
+  ['未配置','Not configured','未設定','미설정'],
+  ['需要生成','Needs generation','生成が必要','생성 필요'],
+  ['本地','Local','ローカル','로컬'],
+  ['本地数据库','Local database','ローカルデータベース','로컬 데이터베이스'],
+  ['同步服务','Sync service','同期サービス','동기화 서비스'],
+  ['后台采集','Background collector','バックグラウンド収集','백그라운드 수집'],
+  ['Dashboard 服务','Dashboard service','Dashboardサービス','Dashboard 서비스'],
+  ['本机测试','Local test','ローカルテスト','로컬 테스트'],
+  ['还没有 token。先生成 token，再把 URL 和 token 填到 iPhone 的 Wond 设置里。','No token yet. Generate one, then enter the URL and token in Wond settings on iPhone.','tokenがまだありません。先にtokenを生成し、URLとtokenをiPhoneのWond設定に入力してください。','아직 token이 없습니다. 먼저 token을 생성한 뒤 iPhone의 Wond 설정에 URL과 token을 입력하세요.'],
+  ['已有 token。为了安全，现有 token 不会明文显示；需要配置新手机时可以生成一个新的。','A token exists. For safety, the current token is hidden. Generate a new one when setting up a new phone.','tokenは設定済みです。安全のため現在のtokenは表示されません。新しい端末を設定するときは新規生成できます。','token이 있습니다. 안전을 위해 현재 token은 표시되지 않습니다. 새 휴대폰을 설정할 때 새로 생성할 수 있습니다.'],
+  ['运行状态','Runtime status','実行状態','실행 상태'],
+  ['待处理','Pending','保留中','대기 중'],
+  ['快捷入口','Shortcuts','ショートカット','바로가기'],
+  ['运行记录','Run records','実行記録','실행 기록'],
+  ['诊断状态','Doctor status','診断状態','진단 상태'],
+  ['修复入口','Repair actions','修復入口','수정 작업'],
+  ['优先处理','Priority issues','優先対応','우선 처리'],
+  ['检查明细','Check details','チェック詳細','검사 상세'],
+  ['音频队列','Audio queue','音声キュー','오디오 대기열'],
+  ['分类','Categories','カテゴリ','분류'],
+  ['事件流','Event stream','イベントストリーム','이벤트 스트림'],
+  ['每日反馈','Daily feedback','日次フィードバック','일일 피드백'],
+  ['已记录','Recorded','記録済み','기록됨'],
+  ['报告库','Report library','レポートライブラリ','보고서 라이브러리'],
+  ['当前文件','Current file','現在のファイル','현재 파일'],
+  ['大纲','Outline','アウトライン','개요'],
+  ['来源总览','Source overview','ソース概要','소스 개요'],
+  ['来源动作','Source actions','ソース操作','소스 작업'],
+  ['来源明细','Source details','ソース詳細','소스 상세'],
+  ['需要处理','Needs work','対応が必要','처리 필요'],
+  ['记录分布','Record distribution','記録分布','기록 분포'],
+  ['训练状态','Training status','トレーニング状態','훈련 상태'],
+  ['训练分数','Training score','トレーニングスコア','훈련 점수'],
+  ['稳定身份','Stable identities','安定したID','안정된 신원'],
+  ['样本/Embedding','Samples / Embeddings','サンプル / Embedding','샘플 / Embedding'],
+  ['代表样本','Representative samples','代表サンプル','대표 샘플'],
+  ['闭环阶段','Loop stages','ループ段階','루프 단계'],
+  ['Speaker 队列','Speaker queue','話者キュー','화자 대기열'],
+  ['样本队列','Sample queue','サンプルキュー','샘플 대기열'],
+  ['整理队列','Cleanup queue','整理キュー','정리 대기열'],
+  ['样本浏览','Sample browser','サンプル閲覧','샘플 탐색'],
+  ['质量中心','Quality center','品質センター','품질 센터'],
+  ['下一步','Next step','次のステップ','다음 단계'],
+  ['维护工具','Maintenance tools','メンテナンスツール','유지관리 도구'],
+  ['危险操作','Danger zone','危険操作','위험 작업'],
+  ['人物档案','Speaker profile','人物プロファイル','인물 프로필'],
+  ['分析状态','Analysis status','分析状態','분석 상태'],
+  ['扫描控制','Scan controls','スキャン制御','스캔 제어'],
+  ['最近文件记录','Recent file records','最近のファイル記録','최근 파일 기록'],
+  ['监控路径','Watch paths','監視パス','감시 경로'],
+  ['格式规则','Format rules','形式ルール','형식 규칙'],
+  ['状态文件','State file','状態ファイル','상태 파일'],
+  ['清理动作','Cleanup actions','クリーンアップ操作','정리 작업'],
+  ['记录体量','Record volume','記録量','기록 용량'],
+  ['按保留策略清理记录','Clean records by retention policy','保持ポリシーで記録を整理','보존 정책으로 기록 정리'],
+  ['缓存与回收箱','Cache & recycle bin','キャッシュとごみ箱','캐시 및 휴지통'],
+  ['增长来源','Growth sources','増加ソース','증가 소스'],
+  ['数据库','Database','データベース','데이터베이스'],
+  ['日志文件','Log files','ログファイル','로그 파일'],
+  ['摘要','Summary','要約','요약'],
+  ['主题','Topic','トピック','주제'],
+  ['主题聚类','Topic clusters','トピッククラスタ','주제 클러스터'],
+  ['今日','Today','今日','오늘'],
+  ['今日重点','Today highlights','今日のハイライト','오늘의 핵심'],
+  ['今日证据','Today evidence','今日の証拠','오늘 증거'],
+  ['快速流转','Quick flow','クイックフロー','빠른 흐름'],
+  ['待修复','Needs repair','修復待ち','수정 필요'],
+  ['待修复队列','Repair queue','修復キュー','수정 대기열'],
+  ['质量','Quality','品質','품질'],
+  ['说话人质量','Speaker quality','話者品質','화자 품질'],
+  ['可执行','Runnable','実行可能','실행 가능'],
+  ['处理队列摘要','Inbox summary','処理キュー要約','처리 대기열 요약'],
+  ['项目 / 主题聚类','Projects / Topic clusters','プロジェクト / トピッククラスタ','프로젝트 / 주제 클러스터'],
+  ['隐私概览','Privacy overview','プライバシー概要','개인정보 개요'],
+  ['快速控制','Quick controls','クイック制御','빠른 제어'],
+  ['敏感来源','Sensitive sources','機密ソース','민감 소스'],
+  ['保留策略','Retention policy','保持ポリシー','보존 정책'],
+  ['清理预览','Cleanup preview','クリーンアッププレビュー','정리 미리보기'],
+  ['发布边界','Publication boundary','公開境界','공개 경계'],
+  ['数据占用','Storage usage','データ使用量','데이터 사용량'],
+  ['配置总览','Settings overview','設定概要','설정 개요'],
+  ['配置分组','Setting groups','設定グループ','설정 그룹'],
+  ['可编辑设置','Editable settings','編集可能な設定','편집 가능한 설정'],
+  ['当前分组详情','Current group details','現在のグループ詳細','현재 그룹 상세'],
+  ['路径和安全','Paths & safety','パスと安全性','경로 및 안전'],
+  ['维护动作','Maintenance actions','メンテナンス操作','유지관리 작업'],
+  ['语言','Language','言語','언어'],
+  ['界面语言','Interface language','インターフェース言語','인터페이스 언어'],
+  ['语言设置','Language settings','言語設定','언어 설정'],
+  ['选择界面语言','Choose interface language','表示言語を選択','인터페이스 언어 선택'],
+  ['立即应用','Apply now','今すぐ適用','지금 적용'],
+  ['初始语言为英语，切换会保存在此浏览器。','Default is English. Changes are saved in this browser.','初期言語は英語です。変更はこのブラウザに保存されます。','초기 언어는 영어입니다. 변경 사항은 이 브라우저에 저장됩니다.'],
+  ['保存设置','Save settings','設定を保存','설정 저장'],
+  ['重载 Agent','Reload Agent','Agentを再読み込み','Agent 다시 로드'],
+  ['重载同步服务','Reload sync service','同期サービスを再読み込み','동기화 서비스 다시 로드'],
+  ['重载 Dashboard','Reload Dashboard','Dashboardを再読み込み','Dashboard 다시 로드'],
+  ['只读','Read-only','読み取り専用','읽기 전용'],
+  ['受控写入','Controlled writes','制御された書き込み','제어된 쓰기'],
+  ['时区','Timezone','タイムゾーン','시간대'],
+  ['采集器','Collectors','コレクタ','수집기'],
+  ['移动同步','Mobile sync','モバイル同期','모바일 동기화'],
+  ['文件分析','File analysis','ファイル分析','파일 분석'],
+  ['分析后删除','Delete after analysis','分析後に削除','분석 후 삭제'],
+  ['音频连续队列','Continuous audio queue','音声連続キュー','오디오 연속 대기열'],
+  ['长期保留','Long-term retention','長期保持','장기 보존'],
+  ['邮件报告','Email reports','メールレポート','이메일 보고서'],
+  ['浏览器资料','Browser profiles','ブラウザプロファイル','브라우저 프로필'],
+  ['限制','Limits','制限','제한'],
+  ['后台 Agent','Background Agent','バックグラウンドAgent','백그라운드 Agent'],
+  ['AI 路由','AI routing','AIルーティング','AI 라우팅'],
+  ['本地 AI','Local AI','ローカルAI','로컬 AI'],
+  ['OpenAI 备用','OpenAI fallback','OpenAI予備','OpenAI 대체'],
+  ['音频分析','Audio analysis','音声分析','오디오 분석'],
+  ['音频预处理','Audio preprocessing','音声前処理','오디오 전처리'],
+  ['回收箱目录','Recycle bin directory','ごみ箱ディレクトリ','휴지통 디렉터리'],
+  ['配置文件','Config file','設定ファイル','설정 파일'],
+  ['数据目录','Data directory','データディレクトリ','데이터 디렉터리'],
+  ['分析副本目录','Analysis copy directory','分析コピー先','분석 사본 디렉터리'],
+  ['脱敏状态','Redaction status','マスキング状態','마스킹 상태'],
+  ['项可直接调整；敏感字段已隐藏',' directly editable; sensitive fields hidden','項目を直接調整できます。機密フィールドは非表示です','개 항목 직접 조정 가능; 민감 필드는 숨김'],
+  ['当前开启数量','currently enabled','現在有効な数','현재 활성화 수'],
+  ['保留预览','Retention preview','保持プレビュー','보존 미리보기'],
+  ['执行保留','Apply retention','保持を実行','보존 실행'],
+  ['按配置启用','Enabled by config','設定により有効','설정에 따라 활성화'],
+  ['保留','Retain','保持','보존'],
+  ['同步上传上限','Sync upload limit','同期アップロード上限','동기화 업로드 제한'],
+  ['同步清理','Sync cleanup','同期クリーンアップ','동기화 정리'],
+  ['索引状态','Index status','索引状態','인덱스 상태'],
+  ['重建语义索引','Rebuild semantic index','セマンティック索引を再構築','시맨틱 인덱스 재생성'],
+  ['问答','Ask','質問','질문'],
+  ['问本地资料','Ask local knowledge','ローカル資料に質問','로컬 자료 질문'],
+  ['只搜索','Search only','検索のみ','검색만'],
+  ['问答工作区','Q&A workspace','Q&Aワークスペース','Q&A 작업 공간'],
+  ['本地检索、语义召回和证据问答','Local search, semantic recall, and evidence Q&A','ローカル検索、セマンティック想起、証拠Q&A','로컬 검색, 시맨틱 검색, 증거 Q&A'],
+  ['语义索引','Semantic index','セマンティック索引','시맨틱 인덱스'],
+  ['检索概览','Retrieval overview','検索概要','검색 개요'],
+  ['语义结果','Semantic results','セマンティック結果','시맨틱 결과'],
+  ['关键词记录','Keyword records','キーワード記録','키워드 기록'],
+  ['答案','Answer','回答','답변'],
+  ['检索','Retrieval','検索','검색'],
+  ['引用','Citations','引用','인용'],
+  ['证据分组','Evidence groups','証拠グループ','증거 그룹'],
+  ['录音','Recordings','録音','녹음'],
+  ['位置','Location','位置','위치'],
+  ['语义','Semantic','セマンティック','시맨틱'],
+  ['反馈','Feedback','フィードバック','피드백'],
+  ['来源状态','Source status','ソース状態','소스 상태'],
+  ['压缩摘要','Compact summaries','要約を圧縮','요약 압축'],
+  ['全部事件','All events','すべてのイベント','모든 이벤트'],
+  ['当前筛选','Current filters','現在のフィルタ','현재 필터'],
+  ['筛选','Filters','フィルタ','필터'],
+  ['清理到期','Clean due items','期限切れを整理','만료 항목 정리'],
+  ['预览清理','Preview cleanup','クリーンアップをプレビュー','정리 미리보기'],
+  ['执行清理','Apply cleanup','クリーンアップを実行','정리 실행'],
+  ['搜索行动、来源、证据','Search actions, sources, or evidence','アクション、ソース、証拠を検索','작업, 소스, 증거 검색'],
+  ['处理备注','Processing note','処理メモ','처리 메모'],
+  ['搜索建议、来源、证据','Search suggestions, sources, or evidence','提案、ソース、証拠を検索','제안, 소스, 증거 검색'],
+  ['搜索项目、关键词、行动项','Search projects, keywords, or action items','プロジェクト、キーワード、アクション項目を検索','프로젝트, 키워드, 작업 항목 검색'],
+  ['项目名','Project name','プロジェクト名','프로젝트 이름'],
+  ['这个项目的长期背景、目标、当前状态','Long-term background, goals, and current status for this project','このプロジェクトの長期背景、目標、現在状態','이 프로젝트의 장기 배경, 목표, 현재 상태'],
+  ['关键词，用逗号分隔','Keywords, separated by commas','キーワード、カンマ区切り','키워드, 쉼표로 구분'],
+  ['会议标题','Meeting title','ミーティングタイトル','회의 제목'],
+  ['参与者，用逗号分隔','Participants, separated by commas','参加者、カンマ区切り','참석자, 쉼표로 구분'],
+  ['议程 / 想确认的问题','Agenda / questions to confirm','議題 / 確認したい質問','안건 / 확인할 질문'],
+  ['记录结论、分歧、行动项。包含“需要/确认/回复/截止”等词会进入处理队列。','Record conclusions, disagreements, and action items. Words like need, confirm, reply, or deadline will enter the inbox.','結論、相違点、アクション項目を記録します。「必要/確認/返信/締切」などの語は処理キューに入ります。','결론, 이견, 작업 항목을 기록합니다. 필요/확인/답장/마감 같은 단어는 처리 대기열에 들어갑니다.'],
+  ['搜索项目、关键词、证据','Search projects, keywords, or evidence','プロジェクト、キーワード、証拠を検索','프로젝트, 키워드, 증거 검색'],
+  ['项目备注','Project note','プロジェクトメモ','프로젝트 메모'],
+  ['开始 HH:MM','Start HH:MM','開始 HH:MM','시작 HH:MM'],
+  ['结束 HH:MM','End HH:MM','終了 HH:MM','종료 HH:MM'],
+  ['搜索时间、人物、应用、地点、摘要','Search time, people, apps, places, or summaries','時間、人物、アプリ、場所、要約を検索','시간, 사람, 앱, 장소, 요약 검색'],
+  ['写下哪些总结重要、不重要或需要修正','Write which summaries matter, do not matter, or need correction','重要な要約、不要な要約、修正が必要な要約を書いてください','중요한 요약, 중요하지 않은 요약, 수정이 필요한 요약 작성'],
+  ['关键词或问题','Keyword or question','キーワードまたは質問','키워드 또는 질문'],
+  ['向本地资料提问，例如：今天录音里有什么值得跟进？','Ask local knowledge, for example: what is worth following up from today\'s recordings?','ローカル資料に質問します。例: 今日の録音でフォローすべきことは？','로컬 자료에 질문하세요. 예: 오늘 녹음에서 후속 조치할 것은?'],
+  ['筛选标题、正文、source/kind','Filter title, body, or source/kind','タイトル、本文、source/kindで絞り込み','제목, 본문, source/kind 필터'],
+  ['搜索文件名、分类、路径','Search file name, category, or path','ファイル名、分類、パスを検索','파일명, 분류, 경로 검색'],
+  ['搜索 ID、名字、状态、来源、一致性','Search ID, name, status, source, or consistency','ID、名前、状態、ソース、一致性を検索','ID, 이름, 상태, 소스, 일관성 검색'],
+  ['搜样本：说话人、obs、转写、状态','Search samples: speaker, obs, transcript, or status','サンプル検索: 話者、obs、文字起こし、状態','샘플 검색: 화자, obs, 전사, 상태'],
+  ['显示名','Display name','表示名','표시 이름'],
+  ['搜索文件名、路径、正文、source/kind','Search file name, path, body, or source/kind','ファイル名、パス、本文、source/kindを検索','파일명, 경로, 본문, source/kind 검색'],
+  ['搜索文件名、原路径、回收路径、分类','Search file name, original path, recycle path, or category','ファイル名、元パス、ごみ箱パス、分類を検索','파일명, 원래 경로, 휴지통 경로, 분류 검색'],
+  ['回收文件路径','Recycled file path','ごみ箱内ファイルパス','휴지통 파일 경로'],
+  ['恢复到指定路径，可留空','Restore to a specific path, optional','指定パスへ復元、空欄可','지정 경로로 복원, 비워둘 수 있음'],
+  ['搜索时间、设备、正文、source key','Search time, device, body, or source key','時間、端末、本文、source keyを検索','시간, 기기, 본문, source key 검색'],
+  ['筛选分组、字段或值','Filter groups, fields, or values','グループ、フィールド、値で絞り込み','그룹, 필드, 값 필터'],
+  ['搜索本地 observations、报告和语义索引。','Search local observations, reports, and the semantic index.','ローカルobservations、レポート、セマンティック索引を検索します。','로컬 observations, 보고서, 시맨틱 인덱스를 검색합니다.'],
+  ['用本地检索结果向本地模型提问。','Ask the local model using local retrieval results.','ローカル検索結果を使ってローカルモデルに質問します。','로컬 검색 결과로 로컬 모델에 질문합니다.'],
+  ['刷新语义索引状态。','Refresh semantic index status.','セマンティック索引の状態を更新します。','시맨틱 인덱스 상태를 새로고침합니다.'],
+  ['重建本地 embedding 索引。','Rebuild the local embedding index.','ローカルembedding索引を再構築します。','로컬 embedding 인덱스를 재생성합니다.'],
+  ['按这个状态筛选音频队列。','Filter the audio queue by this status.','この状態で音声キューを絞り込みます。','이 상태로 오디오 대기열을 필터합니다.'],
+  ['行动总览会合并今日重点、处理队列、修复项、项目聚类和说话人质量。','Action overview combines today highlights, inbox, repairs, project clusters, and speaker quality.','アクション概要は今日のハイライト、処理キュー、修復項目、プロジェクトクラスタ、話者品質を統合します。','작업 개요는 오늘의 핵심, 처리 대기열, 수정 항목, 프로젝트 클러스터, 화자 품질을 합칩니다.'],
+  ['把录音、快速标注、修复项、项目和说话人待处理集中成一个可清空的处理队列。','Collect recordings, quick tags, repairs, projects, and speaker work into one clearable inbox.','録音、クイックタグ、修復項目、プロジェクト、話者タスクを空にできる処理キューへ集約します。','녹음, 빠른 태그, 수정 항목, 프로젝트, 화자 작업을 비울 수 있는 처리 대기열에 모읍니다.'],
+  ['按证据自动聚合今天的主题、项目和相关下一步，是行动工作区里的完整项目视图。','Automatically groups today\'s topics, projects, and next steps from evidence.','証拠から今日のトピック、プロジェクト、次のステップを自動集約します。','증거를 기준으로 오늘의 주제, 프로젝트, 다음 단계를 자동으로 묶습니다.'],
+  ['把每天的项目聚类和会议结论沉淀为长期项目档案。','Turn daily project clusters and meeting conclusions into long-term project files.','毎日のプロジェクトクラスタと会議結論を長期プロジェクト档案に残します。','매일의 프로젝트 클러스터와 회의 결론을 장기 프로젝트 파일로 남깁니다.'],
+  ['开会时记录议程、笔记和行动项，并回写项目记忆与本地时间线。','Record agenda, notes, and action items during meetings, then write them back to memory and timeline.','会議中の議題、メモ、アクション項目を記録し、記憶とタイムラインへ書き戻します。','회의 중 안건, 메모, 작업 항목을 기록하고 기억과 타임라인에 다시 씁니다.'],
+  ['打开实时日内时间线，合并应用、录音、文件、位置和提醒。','Open the live day timeline combining apps, recordings, files, locations, and reminders.','アプリ、録音、ファイル、位置、リマインダーを統合したリアルタイムの日内タイムラインを開きます。','앱, 녹음, 파일, 위치, 미리 알림을 합친 실시간 일일 타임라인을 엽니다.'],
+  ['查看系统数据量、健康状态、最近采集和维护入口。','View data volume, health, recent collection, and maintenance entry points.','データ量、ヘルス状態、最近の収集、メンテナンス入口を表示します。','데이터 용량, 상태, 최근 수집, 유지관리 진입점을 봅니다.'],
+  ['运行本机诊断，检查采集器、同步服务、本地 AI 和数据质量。','Run local diagnostics for collectors, sync service, local AI, and data quality.','コレクタ、同期サービス、ローカルAI、データ品質のローカル診断を実行します。','수집기, 동기화 서비스, 로컬 AI, 데이터 품질 진단을 실행합니다.'],
+  ['查看移动端录音分析队列，并手动触发转写和摘要。','View the mobile recording analysis queue and manually trigger transcription and summaries.','モバイル録音分析キューを表示し、文字起こしと要約を手動実行します。','모바일 녹음 분석 대기열을 보고 전사와 요약을 수동 실행합니다.'],
+  ['把样本、embedding、一致性、代表样本、自动整理和人工确认串成一个训练闭环。','Connect samples, embeddings, consistency, representative samples, auto cleanup, and manual confirmation into one training loop.','サンプル、embedding、一致性、代表サンプル、自動整理、手動確認を一つのトレーニングループにします。','샘플, embedding, 일관성, 대표 샘플, 자동 정리, 수동 확인을 하나의 훈련 루프로 연결합니다.'],
+  ['对本地资料做关键词搜索、语义检索和证据问答。','Run keyword search, semantic retrieval, and evidence Q&A over local knowledge.','ローカル資料に対してキーワード検索、セマンティック検索、証拠Q&Aを行います。','로컬 자료에서 키워드 검색, 시맨틱 검색, 증거 Q&A를 실행합니다.'],
+  ['查看原始事件流，适合排查某一天的底层记录。','View the raw event stream for debugging the records behind a day.','ある日の底層記録を調査するための生イベントストリームを表示します。','하루의 하위 기록을 확인하기 위한 원본 이벤트 흐름을 봅니다.'],
+  ['打开日报、长期摘要、邮件摘要和反馈记录。','Open daily reports, long-term summaries, email summaries, and feedback records.','日報、長期要約、メール要約、フィードバック記録を開きます。','일일 보고서, 장기 요약, 이메일 요약, 피드백 기록을 엽니다.'],
+  ['检查各数据来源是否开启、最近是否采集，以及缺少哪些前置文件。','Check whether each source is enabled, recently collected, and missing prerequisites.','各データソースが有効か、最近収集されたか、不足する前提ファイルを確認します。','각 데이터 소스의 활성화, 최근 수집, 누락된 사전 파일을 확인합니다.'],
+  ['查看说话人聚类、样本、重命名和合并入口。','View speaker clusters, samples, rename, and merge actions.','話者クラスタ、サンプル、名前変更、統合入口を表示します。','화자 클러스터, 샘플, 이름 변경, 병합 작업을 봅니다.'],
+  ['查看文件监控路径、分析状态，并手动扫描新文件。','View file watch paths and analysis status, and manually scan new files.','ファイル監視パスと分析状態を表示し、新規ファイルを手動スキャンします。','파일 감시 경로와 분석 상태를 보고 새 파일을 수동 스캔합니다.'],
+  ['查看分析后暂存的回收文件，预览清理或恢复文件。','View recycled files staged after analysis, preview cleanup, or restore files.','分析後に一時保存されたごみ箱ファイルを表示し、整理をプレビューまたは復元します。','분석 후 임시 보관된 휴지통 파일을 보고 정리 미리보기 또는 복원합니다.'],
+  ['已整合到手机同步页。','Integrated into Mobile Sync.','モバイル同期ページへ統合済みです。','모바일 동기화 페이지에 통합되었습니다.'],
+  ['按当前机器状态完成首次配置、手机同步 token、Mac 服务和 iPhone 连接地址。','Complete first setup, mobile sync token, Mac services, and iPhone connection address based on this machine.','現在のMac状態に基づき初期設定、同期token、Macサービス、iPhone接続先を完了します。','현재 기기 상태에 맞춰 초기 설정, 모바일 동기화 token, Mac 서비스, iPhone 연결 주소를 완료합니다.'],
+  ['集中查看敏感来源、保留策略、缓存清理、发布边界和隐私风险。','Review sensitive sources, retention policy, cache cleanup, publication boundaries, and privacy risks.','機密ソース、保持ポリシー、キャッシュ整理、公開境界、プライバシーリスクをまとめて確認します。','민감 소스, 보존 정책, 캐시 정리, 공개 범위, 개인정보 위험을 함께 봅니다.'],
+  ['查看 Mac/手机连接、上传缓存、导入缓存、音频分析、去重和清理预览。','View Mac/mobile connection, upload cache, import cache, audio analysis, dedupe, and cleanup previews.','Mac/モバイル接続、アップロードキャッシュ、インポートキャッシュ、音声分析、重複排除、整理プレビューを表示します。','Mac/휴대폰 연결, 업로드 캐시, 가져오기 캐시, 오디오 분석, 중복 제거, 정리 미리보기를 봅니다.'],
+  ['统一预览和执行数据库记录、运行日志、缓存和回收箱清理。','Preview and apply cleanup for database records, run logs, cache, and recycle bin in one place.','DB記録、実行ログ、キャッシュ、ごみ箱整理を一箇所でプレビューして実行します。','DB 기록, 실행 로그, 캐시, 휴지통 정리를 한 곳에서 미리보고 실행합니다.'],
+  ['查看和编辑当前配置，敏感字段会被隐藏。','View and edit current settings. Sensitive fields are hidden.','現在の設定を表示・編集します。機密フィールドは非表示です。','현재 설정을 보고 편집합니다. 민감한 필드는 숨겨집니다.'],
+  ['立即采集当天数据，并按配置刷新报告。','Collect today\'s data now and refresh reports according to settings.','今日のデータを今すぐ収集し、設定に従ってレポートを更新します。','오늘 데이터를 즉시 수집하고 설정에 따라 보고서를 새로고침합니다.'],
+  ['处理待分析录音，生成转写、摘要和说话人线索。','Process recordings waiting for analysis and generate transcripts, summaries, and speaker clues.','分析待ち録音を処理し、文字起こし、要約、話者手がかりを生成します。','분석 대기 녹음을 처리하고 전사, 요약, 화자 단서를 생성합니다.'],
+  ['重新生成今天的日报和摘要文件。','Regenerate today\'s daily report and summary files.','今日の日報と要約ファイルを再生成します。','오늘의 일일 보고서와 요약 파일을 다시 생성합니다.'],
+  ['预览或执行长期保留策略，清理已压缩的旧数据。','Preview or apply long-term retention and clean compacted old data.','長期保持ポリシーをプレビューまたは実行し、圧縮済みの古いデータを整理します。','장기 보존 정책을 미리보거나 실행하고 압축된 오래된 데이터를 정리합니다.'],
+  ['检查当前是否有到期的邮件摘要。','Check whether any email summaries are due.','期限になったメール要約があるか確認します。','마감된 이메일 요약이 있는지 확인합니다.'],
+  ['把当天资料压缩进长期日/周/月记忆。','Compact today\'s material into long-term daily, weekly, and monthly memory.','当日の資料を長期の日次/週次/月次記憶へ圧縮します。','오늘 자료를 장기 일/주/월 기억으로 압축합니다.'],
+  ['安装或重载 Mac 后台采集 LaunchAgent。','Install or reload the Mac background collector LaunchAgent.','Macバックグラウンド収集LaunchAgentをインストールまたは再読み込みします。','Mac 백그라운드 수집 LaunchAgent를 설치하거나 다시 로드합니다.'],
+  ['安装或重载手机上传接收服务。','Install or reload the mobile upload receiver service.','モバイルアップロード受信サービスをインストールまたは再読み込みします。','모바일 업로드 수신 서비스를 설치하거나 다시 로드합니다.'],
+  ['安装或重载桌面 dashboard 服务。','Install or reload the desktop dashboard service.','デスクトップdashboardサービスをインストールまたは再読み込みします。','데스크톱 dashboard 서비스를 설치하거나 다시 로드합니다.'],
+  ['重建本地语义搜索索引，供问答和相似检索使用。','Rebuild the local semantic search index for Q&A and similarity retrieval.','Q&Aと類似検索用にローカルセマンティック検索索引を再構築します。','Q&A와 유사 검색을 위한 로컬 시맨틱 검색 인덱스를 재생성합니다.'],
+  ['把选中的说话人 ID 改成真实显示名。','Rename the selected speaker ID to a real display name.','選択した話者IDを実際の表示名に変更します。','선택한 화자 ID를 실제 표시 이름으로 변경합니다.'],
+  ['把自动生成的局部 Speaker 名整理成稳定的全局 Voice ID。','Convert auto-generated local Speaker names into stable global Voice IDs.','自動生成された局所Speaker名を安定したグローバルVoice IDへ整理します。','자동 생성된 로컬 Speaker 이름을 안정적인 전역 Voice ID로 정리합니다.'],
+  ['把一个说话人合并到另一个说话人。','Merge one speaker into another speaker.','一人の話者を別の話者へ統合します。','한 화자를 다른 화자에 병합합니다.'],
+  ['把多个已勾选的说话人一次合并到同一个目标。','Merge multiple selected speakers into one target at once.','チェックした複数話者を一つのターゲットへまとめて統合します。','선택한 여러 화자를 하나의 대상으로 한 번에 병합합니다.'],
+  ['删除一个说话人及其托管样本记录。','Delete one speaker and its managed sample records.','一人の話者と管理サンプル記録を削除します。','한 화자와 관리 샘플 기록을 삭제합니다.'],
+  ['删除多个已勾选的说话人及其托管样本记录。','Delete selected speakers and their managed sample records.','チェックした複数話者と管理サンプル記録を削除します。','선택한 여러 화자와 관리 샘플 기록을 삭제합니다.'],
+  ['把这条样本从当前说话人中分离出来，单独新建一个 Voice。','Detach this sample from the current speaker and create a new Voice.','このサンプルを現在の話者から分離し、新しいVoiceを作成します。','이 샘플을 현재 화자에서 분리하고 새 Voice를 만듭니다.'],
+  ['重新计算说话人的 embedding 聚类一致性，并刷新每条样本相对当前聚类的一致性。','Recalculate speaker embedding cluster consistency and refresh each sample against the current cluster.','話者embeddingクラスタ一致性を再計算し、各サンプルの現在クラスタへの一致性を更新します。','화자 embedding 클러스터 일관성을 다시 계산하고 각 샘플의 현재 클러스터 일관성을 새로고침합니다.'],
+  ['按当前裁剪策略重裁筛选出来的说话人样本，并重新计算变更样本的 embedding。','Re-cut filtered speaker samples with the current trimming policy and recompute embeddings for changed samples.','現在の裁剪ポリシーで絞り込んだ話者サンプルを再裁剪し、変更サンプルのembeddingを再計算します。','현재 자르기 정책으로 필터된 화자 샘플을 다시 자르고 변경된 샘플의 embedding을 재계산합니다.'],
+  ['按 0.68 自动合并相似声音，并隐藏低相似未命名 Voice。','Automatically merge similar voices at 0.68 and hide low-similarity unnamed Voices.','0.68で似た声を自動統合し、低類似の未命名Voiceを非表示にします。','0.68 기준으로 유사 음성을 자동 병합하고 낮은 유사도의 미명명 Voice를 숨깁니다.'],
+  ['确认这些说话人整理结果正确，后续自动整理不会主动隐藏它们。','Confirm these speaker cleanup results so later auto cleanup will not hide them.','これらの話者整理結果を確認し、後続の自動整理で非表示にされないようにします。','이 화자 정리 결과를 확인하여 이후 자동 정리가 숨기지 않도록 합니다.'],
+  ['把低相似隐藏 Voice 放回人工复查列表。','Return hidden low-similarity Voices to the manual review list.','低類似で非表示になったVoiceを手動レビュー一覧へ戻します。','낮은 유사도로 숨겨진 Voice를 수동 검토 목록으로 되돌립니다.'],
+  ['扫描监控路径里的新文件，并用本地分析流程处理。','Scan watch paths for new files and process them with the local analysis flow.','監視パス内の新規ファイルをスキャンし、ローカル分析フローで処理します。','감시 경로의 새 파일을 스캔하고 로컬 분석 흐름으로 처리합니다.'],
+  ['预览或执行回收箱到期清理。','Preview or apply cleanup for expired recycle-bin files.','ごみ箱の期限切れ整理をプレビューまたは実行します。','휴지통 만료 정리를 미리보거나 실행합니다.'],
+  ['把回收箱中的文件恢复到原路径或指定路径。','Restore a recycled file to its original path or a chosen path.','ごみ箱内のファイルを元パスまたは指定パスへ復元します。','휴지통 파일을 원래 경로 또는 지정 경로로 복원합니다.'],
+  ['预览或执行移动端上传缓存和无引用导入目录清理。','Preview or apply cleanup for mobile upload cache and unreferenced import directories.','モバイルアップロードキャッシュと参照なしインポートディレクトリの整理をプレビューまたは実行します。','모바일 업로드 캐시와 참조 없는 가져오기 디렉터리 정리를 미리보거나 실행합니다.'],
+  ['立即更新今天的资料，不等待后台定时采集。','Update today\'s material immediately without waiting for scheduled collection.','バックグラウンド定期収集を待たずに今日の資料を即時更新します。','백그라운드 예약 수집을 기다리지 않고 오늘 자료를 즉시 업데이트합니다.'],
+  ['处理今天尚未完成的录音分析。','Process today\'s unfinished recording analysis.','今日まだ完了していない録音分析を処理します。','오늘 완료되지 않은 녹음 분석을 처리합니다.'],
+  ['重新读取当前页面的数据。','Reload data for the current page.','現在ページのデータを再読み込みします。','현재 페이지 데이터를 다시 읽습니다.'],
+  ['按日期、时间段和关键词筛选今天的事件。','Filter today\'s events by date, time range, and keywords.','日付、時間帯、キーワードで今日のイベントを絞り込みます。','날짜, 시간대, 키워드로 오늘 이벤트를 필터합니다.'],
+  ['把这条反馈保存到数据库、反馈摘要和本地检索资料里。','Save this feedback to the database, feedback summary, and local search knowledge.','このフィードバックをDB、フィードバック要約、ローカル検索資料に保存します。','이 피드백을 DB, 피드백 요약, 로컬 검색 자료에 저장합니다.'],
+  ['采集今天的数据并刷新今天报告。','Collect today\'s data and refresh today\'s report.','今日のデータを収集して今日のレポートを更新します。','오늘 데이터를 수집하고 오늘 보고서를 새로고침합니다.'],
+  ['基于已有数据重新生成今天报告。','Regenerate today\'s report from existing data.','既存データから今日のレポートを再生成します。','기존 데이터로 오늘 보고서를 다시 생성합니다.'],
+  ['生成新的手机同步密钥并写入 config.json；旧 iPhone 配置需要同步更新。','Generate a new mobile sync key and write it to config.json; old iPhone settings must be updated.','新しいモバイル同期キーを生成してconfig.jsonへ書き込みます。古いiPhone設定も更新が必要です。','새 모바일 동기화 키를 생성해 config.json에 쓰며 기존 iPhone 설정도 업데이트해야 합니다.'],
+  ['依次安装并加载同步、后台采集和 dashboard 服务。','Install and load sync, background collector, and dashboard services in sequence.','同期、バックグラウンド収集、dashboardサービスを順にインストールして読み込みます。','동기화, 백그라운드 수집, dashboard 서비스를 차례로 설치하고 로드합니다.'],
+  ['复制这一项到剪贴板。','Copy this item to the clipboard.','この項目をクリップボードへコピーします。','이 항목을 클립보드에 복사합니다.'],
+  ['复制刚生成的新 token。','Copy the newly generated token.','生成したばかりの新しいtokenをコピーします。','방금 생성한 새 token을 복사합니다.'],
+  ['复制这个 Mac 同步地址。','Copy this Mac sync address.','このMac同期アドレスをコピーします。','이 Mac 동기화 주소를 복사합니다.'],
+  ['重新运行本机诊断。','Run local diagnostics again.','ローカル診断を再実行します。','로컬 진단을 다시 실행합니다.'],
+  ['从音频队列中处理最多 5 条。','Process up to 5 items from the audio queue.','音声キューから最大5件を処理します。','오디오 대기열에서 최대 5개를 처리합니다.'],
+  ['从音频队列中处理最多 10 条。','Process up to 10 items from the audio queue.','音声キューから最大10件を処理します。','오디오 대기열에서 최대 10개를 처리합니다.'],
+  ['从音频队列中处理最多 20 条。','Process up to 20 items from the audio queue.','音声キューから最大20件を処理します。','오디오 대기열에서 최대 20개를 처리합니다.'],
+  ['从音频队列中处理最多 50 条。','Process up to 50 items from the audio queue.','音声キューから最大50件を処理します。','오디오 대기열에서 최대 50개를 처리합니다.'],
+  ['清除当前筛选，显示全部记录。','Clear current filters and show all records.','現在のフィルタをクリアして全記録を表示します。','현재 필터를 지우고 모든 기록을 표시합니다.'],
+  ['载入指定日期的数据。','Load data for the specified date.','指定日のデータを読み込みます。','지정한 날짜의 데이터를 불러옵니다.'],
+  ['将指定说话人 ID 重命名。','Rename the specified speaker ID.','指定した話者IDを名前変更します。','지정한 화자 ID의 이름을 변경합니다.'],
+  ['清空当前勾选的说话人。','Clear the currently selected speakers.','現在チェックされている話者をクリアします。','현재 선택된 화자를 지웁니다.'],
+  ['勾选当前筛选结果里显示的所有说话人。','Select all speakers shown in the current filtered results.','現在の絞り込み結果に表示されている全話者をチェックします。','현재 필터 결과에 표시된 모든 화자를 선택합니다.'],
+  ['切换当前筛选结果里的勾选状态。','Invert selected speakers in the current filtered results.','現在の絞り込み結果のチェック状態を反転します。','현재 필터 결과의 선택 상태를 반전합니다.'],
+  ['把所有已勾选说话人合并到指定目标。','Merge all selected speakers into the specified target.','チェック済み話者をすべて指定ターゲットへ統合します。','선택된 모든 화자를 지정 대상으로 병합합니다.'],
+  ['删除所有已勾选说话人、aliases、样本记录和托管样本文件。','Delete all selected speakers, aliases, sample records, and managed sample files.','チェック済み話者、aliases、サンプル記録、管理サンプルファイルをすべて削除します。','선택된 모든 화자, aliases, 샘플 기록, 관리 샘플 파일을 삭제합니다.'],
+  ['永久删除已到期的回收文件。','Permanently delete expired recycled files.','期限切れのごみ箱ファイルを完全削除します。','만료된 휴지통 파일을 영구 삭제합니다.'],
+  ['统一清理旧事件、运行记录、日志、缓存和回收箱。','Clean old events, run records, logs, cache, and recycle bin together.','古いイベント、実行記録、ログ、キャッシュ、ごみ箱をまとめて整理します。','오래된 이벤트, 실행 기록, 로그, 캐시, 휴지통을 함께 정리합니다.'],
+  ['跳转到诊断页，检查配置关联的采集器、服务和模型。','Open Doctor to check collectors, services, and models tied to settings.','診断ページへ移動し、設定に関連するコレクタ、サービス、モデルを確認します。','진단 페이지를 열어 설정과 연결된 수집기, 서비스, 모델을 확인합니다.'],
+  ['只预览长期保留策略会清理的内容。','Only preview what long-term retention would clean.','長期保持ポリシーが整理する内容だけをプレビューします。','장기 보존 정책이 정리할 내용을 미리보기만 합니다.'],
+  ['执行长期保留清理策略。','Apply the long-term retention cleanup policy.','長期保持クリーンアップポリシーを実行します。','장기 보존 정리 정책을 실행합니다.'],
+  ['把当前分组的可编辑配置写入 config.json。','Write editable settings in the current group to config.json.','現在グループの編集可能設定をconfig.jsonへ書き込みます。','현재 그룹의 편집 가능한 설정을 config.json에 씁니다.'],
+  ['重新加载后台采集服务，让采集、音频、文件分析等配置生效。','Reload the background collector so collection, audio, and file-analysis settings take effect.','バックグラウンド収集サービスを再読み込みし、収集、音声、ファイル分析設定を反映します。','백그라운드 수집 서비스를 다시 로드해 수집, 오디오, 파일 분석 설정을 적용합니다.'],
+  ['重新加载手机上传接收服务，让端口、上传限制和导入策略生效。','Reload the mobile upload receiver so port, upload limit, and import policy changes take effect.','モバイルアップロード受信サービスを再読み込みし、ポート、アップロード制限、インポート方針を反映します。','모바일 업로드 수신 서비스를 다시 로드해 포트, 업로드 제한, 가져오기 정책을 적용합니다.'],
+  ['重新加载桌面 dashboard 服务。','Reload the desktop dashboard service.','デスクトップdashboardサービスを再読み込みします。','데스크톱 dashboard 서비스를 다시 로드합니다.'],
+  ['没有可执行的修复项','No runnable repair items','実行可能な修復項目はありません','실행 가능한 수정 항목 없음'],
+  ['当前处理队列为空','The current inbox is empty','現在の処理キューは空です','현재 처리 대기열이 비어 있음'],
+  ['已创建项目记忆','Project memory created','プロジェクト記憶を作成しました','프로젝트 기억 생성됨'],
+  ['创建失败','Create failed','作成に失敗しました','생성 실패'],
+  ['已写入项目记忆','Saved to project memory','プロジェクト記憶へ書き込みました','프로젝트 기억에 저장됨'],
+  ['写入失败','Save failed','書き込みに失敗しました','저장 실패'],
+  ['项目记忆已更新','Project memory updated','プロジェクト記憶を更新しました','프로젝트 기억 업데이트됨'],
+  ['更新失败','Update failed','更新に失敗しました','업데이트 실패'],
+  ['会议记录已开始','Meeting notes started','会議メモを開始しました','회의 기록 시작됨'],
+  ['开始失败','Start failed','開始に失敗しました','시작 실패'],
+  ['会议笔记为空','Meeting note is empty','会議メモが空です','회의 메모가 비어 있음'],
+  ['已记录会议笔记','Meeting note recorded','会議メモを記録しました','회의 메모 기록됨'],
+  ['记录失败','Record failed','記録に失敗しました','기록 실패'],
+  ['会议已结束并写入本地记忆','Meeting ended and saved to local memory','会議を終了しローカル記憶へ保存しました','회의 종료 후 로컬 기억에 저장됨'],
+  ['结束失败','End failed','終了に失敗しました','종료 실패'],
+  ['已更新处理状态','Processing status updated','処理状態を更新しました','처리 상태 업데이트됨'],
+  ['状态更新失败','Status update failed','状態更新に失敗しました','상태 업데이트 실패'],
+  ['当前列表为空','The current list is empty','現在のリストは空です','현재 목록이 비어 있음'],
+  ['已更新','Updated','更新しました','업데이트됨'],
+  ['已生成并保存新 token','Generated and saved a new token','新しいtokenを生成して保存しました','새 token 생성 및 저장됨'],
+  ['token 生成失败','Token generation failed','token生成に失敗しました','token 생성 실패'],
+  ['已复制','Copied','コピーしました','복사됨'],
+  ['反馈内容为空','Feedback is empty','フィードバックが空です','피드백이 비어 있음'],
+  ['已写入每日反馈','Daily feedback saved','日次フィードバックを書き込みました','일일 피드백 저장됨'],
+  ['请选择说话人并输入显示名','Select a speaker and enter a display name','話者を選択し表示名を入力してください','화자를 선택하고 표시 이름을 입력하세요'],
+  ['请先勾选要确认的说话人','Select speakers to confirm first','確認する話者を先に選択してください','확인할 화자를 먼저 선택하세요'],
+  ['请先勾选要取消隐藏的说话人','Select speakers to unhide first','再表示する話者を先に選択してください','숨김 해제할 화자를 먼저 선택하세요'],
+  ['当前队列没有可处理的说话人','No processable speakers in the current queue','現在のキューに処理可能な話者はありません','현재 대기열에 처리 가능한 화자가 없음'],
+  ['当前样本筛选没有关联说话人','The current sample filter has no linked speakers','現在のサンプル絞り込みには関連話者がありません','현재 샘플 필터에 연결된 화자가 없음'],
+  ['当前样本筛选没有可处理的样本','The current sample filter has no processable samples','現在のサンプル絞り込みには処理可能なサンプルがありません','현재 샘플 필터에 처리 가능한 샘플이 없음'],
+  ['至少勾选两个说话人，或选择一个合并目标','Select at least two speakers, or choose a merge target','少なくとも2人の話者を選択するか、統合ターゲットを選んでください','최소 두 명의 화자를 선택하거나 병합 대상을 선택하세요'],
+  ['未选择说话人，将重算全部说话人一致性','No speakers selected; recalculating consistency for all speakers','話者未選択のため、全話者の一致性を再計算します','선택된 화자가 없어 모든 화자의 일관성을 재계산합니다'],
+  ['请先勾选要删除的说话人','Select speakers to delete first','削除する話者を先に選択してください','삭제할 화자를 먼저 선택하세요'],
+  ['已填入说话人','Speaker filled in','話者を入力しました','화자 입력됨'],
+  ['已填入恢复路径','Restore path filled in','復元パスを入力しました','복원 경로 입력됨'],
+  ['执行自动整理会合并相似 Voice 并隐藏低相似未命名 Voice，继续？','Auto cleanup will merge similar Voices and hide low-similarity unnamed Voices. Continue?','自動整理は似たVoiceを統合し、低類似の未命名Voiceを非表示にします。続行しますか？','자동 정리는 유사 Voice를 병합하고 낮은 유사도의 미명명 Voice를 숨깁니다. 계속할까요?'],
+  ['跑一轮训练会补齐缺失 embedding、重算样本一致性并刷新代表样本；不会自动合并。继续？','One training cycle will fill missing embeddings, recalculate sample consistency, and refresh representative samples; it will not auto-merge. Continue?','1回の訓練で不足embeddingを補完し、サンプル一致性を再計算し、代表サンプルを更新します。自動統合はしません。続行しますか？','한 번의 훈련은 누락 embedding 보완, 샘플 일관성 재계산, 대표 샘플 새로고침을 수행합니다. 자동 병합은 하지 않습니다. 계속할까요?'],
+  ['自动整理相似声音：按 0.68 自动合并相似声音，并把低相似未命名 Voice 隐藏到单独筛选里？','Auto-clean similar voices: merge similar voices at 0.68 and move low-similarity unnamed Voices into a separate hidden filter?','類似音声の自動整理: 0.68で類似音声を統合し、低類似の未命名Voiceを別の非表示フィルタへ移しますか？','유사 음성 자동 정리: 0.68 기준으로 병합하고 낮은 유사도의 미명명 Voice를 별도 숨김 필터로 이동할까요?'],
+  ['为已有样本补齐缺失的 speaker embedding？这会调用本地 SpeechBrain 模型，可能需要一点时间。','Fill missing speaker embeddings for existing samples? This calls the local SpeechBrain model and may take some time.','既存サンプルの不足speaker embeddingを補完しますか？ローカルSpeechBrainモデルを呼び出すため少し時間がかかる場合があります。','기존 샘플의 누락 speaker embedding을 보완할까요? 로컬 SpeechBrain 모델을 호출하므로 시간이 걸릴 수 있습니다.'],
+  ['把隐藏队列里已经积累足够证据的 Voice 放回人工复查？','Return hidden Voices with enough accumulated evidence to manual review?','十分な証拠が蓄積した非表示Voiceを手動レビューへ戻しますか？','충분한 증거가 쌓인 숨겨진 Voice를 수동 검토로 되돌릴까요?'],
+  ['永久删除已到期的回收箱文件？','Permanently delete expired recycle-bin files?','期限切れのごみ箱ファイルを完全削除しますか？','만료된 휴지통 파일을 영구 삭제할까요?'],
+  ['执行移动端缓存清理？','Apply mobile cache cleanup?','モバイルキャッシュ整理を実行しますか？','모바일 캐시 정리를 실행할까요?'],
+  ['按保留策略删除旧记录、旧运行日志和旧详细报告？','Delete old records, old run logs, and old detailed reports according to retention policy?','保持ポリシーに従い古い記録、実行ログ、詳細レポートを削除しますか？','보존 정책에 따라 오래된 기록, 실행 로그, 상세 보고서를 삭제할까요?'],
+  ['按当前保留策略执行删除？','Delete according to the current retention policy?','現在の保持ポリシーに従って削除しますか？','현재 보존 정책에 따라 삭제할까요?'],
+  ['执行长期保留清理？','Apply long-term retention cleanup?','長期保持クリーンアップを実行しますか？','장기 보존 정리를 실행할까요?'],
+  ['确认当前队列里的','Confirm speakers in the current queue:','現在キュー内の話者を確認:','현재 대기열의 화자 확인:'],
+  ['个说话人？','speakers?','人の話者？','명의 화자?'],
+  ['取消隐藏当前队列里的','Unhide speakers in the current queue:','現在キュー内の話者を再表示:','현재 대기열의 화자 숨김 해제:'],
+  ['按当前裁剪策略重裁','Re-cut with the current trimming policy:','現在の裁剪ポリシーで再裁剪:','현재 자르기 정책으로 다시 자르기:'],
+  ['个样本？只会处理能找到源音频的样本，已确认说话人不会被重新分组。','samples? Only samples with source audio will be processed; confirmed speakers will not be regrouped.','個のサンプル？元音声が見つかるサンプルのみ処理し、確認済み話者は再グループ化されません。','개 샘플? 원본 오디오를 찾을 수 있는 샘플만 처리하며 확인된 화자는 재그룹화되지 않습니다.'],
+  ['把','Merge','統合','병합'],
+  ['个说话人合并到','speakers into','人の話者を次へ統合:','명의 화자를 다음 대상으로 병합:'],
+  ['删除','Delete','削除','삭제'],
+  ['个说话人及其托管样本记录？这个操作不能撤销。','speakers and their managed sample records? This cannot be undone.','人の話者と管理サンプル記録を削除しますか？この操作は元に戻せません。','명의 화자와 관리 샘플 기록을 삭제할까요? 이 작업은 취소할 수 없습니다.'],
+  ['把这个样本从','Detach this sample from','このサンプルを次から分離:','이 샘플을 다음에서 분리:'],
+  ['分离出来，并单独新建一个 Voice？','and create a separate new Voice?','して、別の新しいVoiceを作成しますか？','하고 별도의 새 Voice를 만들까요?'],
+  ['无事件','No events','イベントなし','이벤트 없음'],
+  ['全天','All day','終日','하루 종일'],
+  ['上午','Morning','午前','오전'],
+  ['下午','Afternoon','午後','오후'],
+  ['晚上','Evening','夜','저녁'],
+  ['深夜','Late night','深夜','심야'],
+  ['凌晨','Late night','未明','새벽'],
+  ['工作时间','Work hours','勤務時間','근무 시간'],
+  ['日内概览','Day overview','日内概要','일일 개요'],
+  ['事件','Events','イベント','이벤트'],
+  ['显示','shown','表示','표시'],
+  ['聊天','Chat','チャット','채팅'],
+  ['提醒','Reminders','リマインダー','미리 알림'],
+  ['已有Summary','With summary','要約あり','요약 있음'],
+  ['最近分析','Latest analysis','最新分析','최근 분석'],
+  ['重要','Important','重要','중요'],
+  ['不重要','Not important','重要でない','중요하지 않음'],
+  ['错了','Wrong','誤り','틀림'],
+  ['纠正','Correct','修正','수정'],
+  ['暂无Feedback','No feedback yet','フィードバックなし','아직 피드백 없음'],
+  ['日程','Calendar','カレンダー','일정'],
+  ['当前','Current','現在','현재'],
+  ['处理流','Processing flow','処理フロー','처리 흐름'],
+  ['清空队列','Clear queue','キューを空にする','대기열 비우기'],
+  ['队列列表','Queue list','キュー一覧','대기열 목록'],
+  ['优先级','Priority','優先度','우선순위'],
+  ['类型','Type','種類','유형'],
+  ['项目 / 主题工作台','Projects / Topic workbench','プロジェクト / トピックワークベンチ','프로젝트 / 주제 작업대'],
+  ['当前归档','Archive current','現在をアーカイブ','현재 항목 보관'],
+  ['Sources构成','Sources breakdown','ソース内訳','소스 구성'],
+  ['Current filters没有Sources构成','No source breakdown for current filters','現在のフィルタにソース内訳はありません','현재 필터에 소스 구성이 없음'],
+  ['没有匹配的项目','No matching projects','一致するプロジェクトはありません','일치하는 프로젝트 없음'],
+  ['长期项目档案','Long-term project files','長期プロジェクト档案','장기 프로젝트 파일'],
+  ['暂停','Paused','一時停止','일시 중지'],
+  ['新建项目','New project','新規プロジェクト','새 프로젝트'],
+  ['还没有项目记忆；可以从今日项目聚类或会议结束时写入。','No project memory yet. You can save it from today\'s project clusters or when a meeting ends.','プロジェクト記憶はまだありません。今日のプロジェクトクラスタまたは会議終了時に保存できます。','아직 프로젝트 기억이 없습니다. 오늘의 프로젝트 클러스터나 회의 종료 시 저장할 수 있습니다.'],
+  ['今日可沉淀项目','Projects to save today','今日保存できるプロジェクト','오늘 저장 가능한 프로젝트'],
+  ['今天还没有明显项目聚类','No clear project clusters today','今日は明確なプロジェクトクラスタがまだありません','오늘 뚜렷한 프로젝트 클러스터가 아직 없음'],
+  ['还没有活跃项目；可以先去项目记忆创建，或直接开始无项目会议。','No active projects yet. Create one in Project Memory, or start a meeting without a project.','アクティブなプロジェクトはまだありません。プロジェクト記憶で作成するか、プロジェクトなしで会議を開始できます。','아직 활성 프로젝트가 없습니다. 프로젝트 기억에서 만들거나 프로젝트 없이 회의를 시작할 수 있습니다.'],
+  ['还没有会议记录','No meeting records yet','会議記録はまだありません','아직 회의 기록 없음'],
+  ['Meeting流转','Meeting flow','会議フロー','회의 흐름'],
+  ['不关联项目','No linked project','関連プロジェクトなし','연결된 프로젝트 없음'],
+  ['扫描新文件','Scan new files','新規ファイルをスキャン','새 파일 스캔'],
+  ['查看回收箱','View recycle bin','ごみ箱を表示','휴지통 보기'],
+  ['文件事件','File events','ファイルイベント','파일 이벤트'],
+  ['有正文','Has body','本文あり','본문 있음'],
+  ['大文件','Large files','大容量ファイル','큰 파일'],
+  ['扫描间隔','Scan interval','スキャン間隔','스캔 간격'],
+  ['稳定等待','Stability wait','安定待ち','안정 대기'],
+  ['每轮上限','Per-run limit','1回の上限','회당 제한'],
+  ['工作区','Workspace','ワークスペース','작업 공간'],
+  ['支持格式','Supported formats','対応形式','지원 형식'],
+  ['跳过格式','Skipped formats','スキップ形式','건너뛸 형식'],
+  ['跳过目录','Skipped folders','スキップフォルダ','건너뛸 폴더'],
+  ['记录','Records','記録','기록'],
+  ['问题','Issues','問題','문제'],
+  ['最近','Recent','最近','최근'],
+  ['最近记录','Recent records','最近の記録','최근 기록'],
+  ['设备','Device','端末','기기'],
+  ['本机','Local Mac','ローカルMac','로컬 Mac'],
+  ['采集与排查','Collect & inspect','収集と調査','수집 및 점검'],
+  ['按记录数','By record count','記録数順','기록 수 기준'],
+  ['队列状态','Queue status','キュー状態','대기열 상태'],
+  ['批处理','Batch processing','一括処理','일괄 처리'],
+  ['队列明细','Queue details','キュー詳細','대기열 상세'],
+  ['状态分布','Status breakdown','状態分布','상태 분포'],
+  ['覆盖率','Coverage','カバレッジ','범위'],
+  ['自动整理相似声音','Auto-clean similar voices','類似音声を自動整理','유사 음성 자동 정리'],
+  ['重算全部一致性','Recalculate all consistency','全一致性を再計算','전체 일관성 재계산'],
+  ['整理自动名','Normalize automatic names','自動名を整理','자동 이름 정리'],
+  ['补 embedding','Fill embeddings','embeddingを補完','embedding 보완'],
+  ['复活隐藏队列','Revive hidden queue','非表示キューを復活','숨김 대기열 복원'],
+  ['整理待确认','Cleanup needs confirmation','整理確認待ち','정리 확인 필요'],
+  ['低一致性','Low consistency','低一致性','낮은 일관성'],
+  ['人工复查','Manual review','手動レビュー','수동 검토'],
+  ['隐藏','Hidden','非表示','숨김'],
+  ['优先待清洗','Priority cleanup','優先整理','우선 정리'],
+  ['最近出现','Recently seen','最近出現','최근 발견'],
+  ['样本最多','Most samples','サンプル最多','샘플 최다'],
+  ['一致性最高','Highest consistency','一致性最高','일관성 최고'],
+  ['ID 顺序','ID order','ID順','ID 순서'],
+  ['当前队列','Current queue','現在のキュー','현재 대기열'],
+  ['需处理','Needs work','対応が必要','처리 필요'],
+  ['缺 embedding','Missing embedding','embedding不足','embedding 누락'],
+  ['可播放','Playable','再生可能','재생 가능'],
+  ['已分离','Detached','分離済み','분리됨'],
+  ['当前队列样本','Current queue samples','現在キューのサンプル','현재 대기열 샘플'],
+  ['选中说话人样本','Selected speaker samples','選択話者サンプル','선택 화자 샘플'],
+  ['全部样本','All samples','すべてのサンプル','모든 샘플'],
+  ['问题优先','Issues first','問題優先','문제 우선'],
+  ['最新样本','Newest samples','最新サンプル','최신 샘플'],
+  ['按说话人','By speaker','話者別','화자 기준'],
+  ['时长最长','Longest duration','最長時間','가장 긴 길이'],
+  ['待选择','No selection','選択待ち','선택 대기'],
+  ['近期匹配记录','Recent match records','最近の照合記録','최근 매칭 기록'],
+  ['未开始','Not started','未開始','시작 전'],
+  ['待训练','Needs training','訓練待ち','훈련 필요'],
+  ['样本问题','Sample issues','サンプル問題','샘플 문제'],
+  ['稳定','Stable','安定','안정'],
+  ['样本库','Sample library','サンプルライブラリ','샘플 라이브러리'],
+  ['重算一致性','Recalculate consistency','一致性を再計算','일관성 재계산'],
+  ['自动整理','Auto cleanup','自動整理','자동 정리'],
+  ['自动整理后复查','Review after auto cleanup','自動整理後に再確認','자동 정리 후 검토'],
+  ['人工确认','Manual confirmation','手動確認','수동 확인'],
+  ['样本队列没有待处理项','Sample queue has no pending items','サンプルキューに保留項目はありません','샘플 대기열에 대기 항목 없음'],
+  ['最近整理','Recent cleanup','最近の整理','최근 정리'],
+  ['暂无整理记录','No cleanup records yet','整理記録はまだありません','아직 정리 기록 없음'],
+  ['重载服务','Reload service','サービスを再読み込み','서비스 다시 로드'],
+  ['连接与导入','Connection & import','接続とインポート','연결 및 가져오기'],
+  ['在线','Online','オンライン','온라인'],
+  ['上次捕获','Last capture','前回キャプチャ','마지막 캡처'],
+  ['待导入','Pending import','インポート待ち','가져오기 대기'],
+  ['有正文','Has body','本文あり','본문 있음'],
+  ['服务与操作','Service & actions','サービスと操作','서비스 및 작업'],
+  ['服务详情','Service details','サービス詳細','서비스 상세'],
+  ['最近移动端记录','Recent mobile records','最近のモバイル記録','최근 모바일 기록'],
+  ['上传与导入缓存','Upload & import cache','アップロードとインポートキャッシュ','업로드 및 가져오기 캐시'],
+  ['删除目录','Delete folders','ディレクトリ削除','디렉터리 삭제'],
+  ['可释放','Reclaimable','解放可能','회수 가능'],
+  ['导入策略','Import policy','インポート方針','가져오기 정책'],
+  ['本地记录','Local records','ローカル記録','로컬 기록'],
+  ['高敏开启','Sensitive on','機密オン','민감 켜짐'],
+  ['保留候选','Retention candidates','保持候補','보존 후보'],
+  ['可清缓存','Cleanable cache','整理可能キャッシュ','정리 가능 캐시'],
+  ['高敏','Sensitive','機密','민감'],
+  ['保留文本','Retained text','保持テキスト','보존 텍스트'],
+  ['已关闭','Off','オフ','꺼짐'],
+  ['来源详情','Source details','ソース詳細','소스 상세'],
+  ['查来源','Check sources','ソース確認','소스 확인'],
+  ['原始事件','Raw events','生イベント','원본 이벤트'],
+  ['应用样本','App samples','アプリサンプル','앱 샘플'],
+  ['详细报告','Detailed reports','詳細レポート','상세 보고서'],
+  ['保存保留策略','Save retention policy','保持ポリシーを保存','보존 정책 저장'],
+  ['重新预览','Preview again','再プレビュー','다시 미리보기'],
+  ['查看 dry-run 输出','View dry-run output','dry-run出力を表示','dry-run 출력 보기'],
+  ['移动缓存文件','Mobile cached files','モバイルキャッシュファイル','모바일 캐시 파일'],
+  ['移动导入目录','Mobile import folders','モバイルインポートディレクトリ','모바일 가져오기 디렉터리'],
+  ['回收箱项目','Recycle bin items','ごみ箱項目','휴지통 항목'],
+  ['到期回收文件','Expired recycled files','期限切れごみ箱ファイル','만료된 휴지통 파일'],
+  ['记录预览','Record preview','記録プレビュー','기록 미리보기'],
+  ['执行记录清理','Apply record cleanup','記録整理を実行','기록 정리 실행'],
+  ['缓存预览','Cache preview','キャッシュプレビュー','캐시 미리보기'],
+  ['回收箱预览','Recycle bin preview','ごみ箱プレビュー','휴지통 미리보기'],
+  ['先预览，再执行','Preview before applying','実行前にプレビュー','실행 전 미리보기'],
+  ['查看 retention dry-run 输出','View retention dry-run output','retention dry-run出力を表示','retention dry-run 출력 보기'],
+  ['暂存概览','Staging overview','一時保存概要','임시 보관 개요'],
+  ['暂存文件','Staged files','一時保存ファイル','임시 보관 파일'],
+  ['占用空间','Storage used','使用容量','사용 공간'],
+  ['到期可删','Due for deletion','削除期限到来','삭제 예정'],
+  ['保留期','Retention window','保持期間','보존 기간'],
+  ['下次','Next','次回','다음'],
+  ['到期','Due','期限到来','만료'],
+  ['手机音频','Mobile audio','モバイル音声','모바일 오디오'],
+  ['缺失','Missing','不足','누락'],
+  ['未知','Unknown','不明','알 수 없음'],
+  ['空目录','Empty folders','空ディレクトリ','빈 디렉터리'],
+  ['回收文件','Recycled files','ごみ箱ファイル','휴지통 파일'],
+  ['路径','Path','パス','경로'],
+  ['扫描清理','Scan cleanup','スキャン整理','스캔 정리'],
+  ['维护清理','Maintenance cleanup','メンテナンス整理','유지관리 정리'],
+  ['最近日报','Latest daily report','最新日報','최근 일일 보고서'],
+  ['手机同步 token','Mobile sync token','モバイル同期token','모바일 동기화 token'],
+  ['状态','Status','状態','상태'],
+  ['证据','Evidence','証拠','증거'],
+  ['样本','Samples','サンプル','샘플'],
+  ['分析','Analysis','分析','분석'],
+  ['已分析','Analyzed','分析済み','분석됨'],
+  ['已有分析','Analyzed','分析済み','분석됨'],
+  ['已处理','Processed','処理済み','처리됨'],
+  ['上次','Last','前回','마지막'],
+  ['扫描','Scan','スキャン','스캔'],
+  ['通信','Messaging','通信','메시지'],
+  ['同步','Sync','同期','동기화'],
+  ['总数','Total','合計','총계'],
+  ['小时','hours','時間','시간'],
+  ['天','days','日','일'],
+  ['项目动作','Project actions','プロジェクト操作','프로젝트 작업'],
+  ['项目列表','Project list','プロジェクト一覧','프로젝트 목록'],
+  ['当前筛选没有来源构成','No source breakdown for current filters','現在のフィルタにソース内訳はありません','현재 필터에 소스 구성이 없음'],
+  ['来源构成','Source breakdown','ソース内訳','소스 구성'],
+  ['没有匹配的项目聚类','No matching project clusters','一致するプロジェクトクラスタはありません','일치하는 프로젝트 클러스터 없음'],
+  ['没有进行中的会议','No meeting in progress','進行中の会議はありません','진행 중인 회의 없음'],
+  ['会议进行中','Meeting in progress','会議中','회의 진행 중'],
+  ['会议流转','Meeting flow','会議フロー','회의 흐름'],
+  ['已有摘要','With summary','要約あり','요약 있음'],
+  ['暂无反馈','No feedback yet','フィードバックなし','아직 피드백 없음'],
+  ['今天待处理','Pending today','今日の保留','오늘 대기'],
+  ['活跃说话人','Active speakers','アクティブ話者','활성 화자'],
+  ['全部说话人','All speakers','すべての話者','전체 화자'],
+  ['说话人列表','Speaker list','話者一覧','화자 목록'],
+  ['低一致性说话人','Low-consistency speakers','低一致性話者','낮은 일관성 화자'],
+  ['隐藏低相似 Voice','Hidden low-similarity Voices','低類似で非表示のVoice','낮은 유사도로 숨겨진 Voice'],
+  ['正常','Normal','正常','정상'],
+  ['已确认','Confirmed','確認済み','확인됨'],
+  ['已接受','Accepted','承認済み','승인됨'],
+  ['已隐藏','Hidden','非表示済み','숨겨짐'],
+  ['待确认','Needs confirmation','確認待ち','확인 필요'],
+  ['待复查','Needs review','レビュー待ち','검토 필요'],
+  ['待评分','Needs scoring','スコア待ち','점수 필요'],
+  ['低一致性','Low consistency','低一致性','낮은 일관성'],
+  ['自动整理待确认','Auto cleanup pending confirmation','自動整理の確認待ち','자동 정리 확인 필요'],
+  ['合并后需确认','Confirm after merge','統合後に確認','병합 후 확인 필요'],
+  ['隐藏低相似','Hide low-similarity','低類似を非表示','낮은 유사도 숨김'],
+  ['默认不再打扰','Hidden by default','デフォルトで非表示','기본적으로 숨김'],
+  ['样本无法匹配','Samples cannot match','サンプル照合不可','샘플 매칭 불가'],
+  ['人物档案锚点','Profile anchors','人物档案アンカー','프로필 앵커'],
+  ['已选','selected','選択済み','선택됨'],
+  ['点击卡片选择','Click a card to select','カードをクリックして選択','카드를 클릭해 선택'],
+  ['队列','Queue','キュー','대기열'],
+  ['代表','Representative','代表','대표'],
+  ['选择一个说话人或筛选队列','Select a speaker or filter queue','話者またはフィルタキューを選択','화자 또는 필터 대기열 선택'],
+  ['这里会自动出现和当前上下文相关的按钮，其它按钮保持隐藏。','Contextual buttons appear here automatically; other buttons stay hidden.','現在のコンテキストに関連するボタンが自動表示され、他のボタンは非表示のままです。','현재 컨텍스트에 맞는 버튼이 자동으로 나타나며 다른 버튼은 숨겨집니다.'],
+  ['点击一个说话人、队列筛选或 sample 筛选后，相关按钮会自动出现。','Click a speaker, queue filter, or sample filter to show related buttons.','話者、キューフィルタ、sampleフィルタをクリックすると関連ボタンが表示されます。','화자, 대기열 필터, sample 필터를 클릭하면 관련 버튼이 표시됩니다.'],
+  ['先用队列筛说话人；点卡片后下方样本会立刻切到选中说话人。批量确认、恢复和重算在右侧一次完成。','Filter speakers with the queue first. After clicking a card, samples below switch to the selected speaker. Batch confirm, restore, and recalculation are on the right.','まずキューで話者を絞り込みます。カードをクリックすると下のサンプルが選択話者へ切り替わります。一括確認、復元、再計算は右側で行います。','먼저 대기열로 화자를 필터하세요. 카드를 클릭하면 아래 샘플이 선택한 화자로 전환됩니다. 일괄 확인, 복원, 재계산은 오른쪽에서 처리합니다.'],
+  ['当前筛选没有需要训练的 speaker','No speakers need training in the current filter','現在のフィルタに訓練が必要なspeakerはありません','현재 필터에 훈련이 필요한 speaker 없음'],
+  ['样本队列没有待处理项','Sample queue has no pending items','サンプルキューに保留項目はありません','샘플 대기열에 대기 항목 없음'],
+  ['跑一轮训练','Run one training cycle','訓練を1回実行','훈련 1회 실행'],
+  ['一致性','Consistency','一致性','일관성'],
+  ['查看来源','View sources','ソースを表示','소스 보기'],
+  ['查看Sources','View sources','ソースを表示','소스 보기'],
+  ['执行缓存清理','Apply cache cleanup','キャッシュ整理を実行','캐시 정리 실행'],
+  ['清理回收箱','Clean recycle bin','ごみ箱を整理','휴지통 정리'],
+  ['清理Recycle Bin','Clean recycle bin','ごみ箱を整理','휴지통 정리'],
+  ['Recycle Bin预览','Recycle bin preview','ごみ箱プレビュー','휴지통 미리보기'],
+  ['Recycle Bin项目','Recycle bin items','ごみ箱項目','휴지통 항목'],
+  ['回收箱条目','Recycle bin items','ごみ箱項目','휴지통 항목'],
+  ['App 样本','App samples','アプリサンプル','앱 샘플'],
+  ['应用样本','App samples','アプリサンプル','앱 샘플'],
+  ['天保留','days retention','日保持','일 보존'],
+  ['恢复','Restore','復元','복원'],
+  ['路径','Path','パス','경로'],
+  ['秒','sec','秒','초'],
+  ['轮','run','回','회'],
+  ['个',' ','件','개'],
+  ['组','groups','グループ','그룹'],
+  ['项','items','項目','개'],
+  ['条','items','件','개'],
+  ['开启数量','enabled count','有効数','활성화 수'],
+  ['Mac 端数据来源开关，决定后台会采集哪些本机信号。','Mac-side source toggles decide which local signals the background collector records.','Mac側のデータソース切替で、バックグラウンド収集が記録するローカル信号を決めます。','Mac 측 데이터 소스 스위치가 백그라운드 수집기가 기록할 로컬 신호를 결정합니다.'],
+  ['决定分析和问答优先走本地模型还是外部 provider。','Controls whether analysis and Q&A prefer local models or an external provider.','分析とQ&Aでローカルモデルを優先するか外部providerを使うかを決めます。','분석과 Q&A가 로컬 모델 또는 외부 provider를 우선할지 결정합니다.'],
+  ['Ollama、转写后端和本地模型配置。','Ollama, transcription backend, and local model settings.','Ollama、文字起こしバックエンド、ローカルモデル設定。','Ollama, 전사 백엔드, 로컬 모델 설정입니다.'],
+  ['外部 OpenAI 分析配置；敏感字段在这里不会明文显示。','External OpenAI analysis settings; sensitive fields are not shown in plain text here.','外部OpenAI分析設定。機密フィールドはここでは平文表示されません。','외부 OpenAI 분석 설정입니다. 민감한 필드는 여기에서 평문으로 표시되지 않습니다.'],
+  ['移动录音转写、摘要、队列处理和音频清理策略。','Mobile recording transcription, summary, queue, and audio cleanup policy.','モバイル録音の文字起こし、要約、キュー処理、音声クリーンアップ方針。','모바일 녹음 전사, 요약, 대기열 처리, 오디오 정리 정책입니다.'],
+  ['ASR/diarization 前的人声增强、speaker sample 增强和重叠说话候选分离。','Voice enhancement before ASR/diarization, speaker sample enhancement, and overlap candidate separation.','ASR/diarization前の音声強化、話者サンプル強化、重複発話候補の分離。','ASR/diarization 전 음성 강화, 화자 샘플 강화, 겹침 발화 후보 분리입니다.'],
+  ['说话人聚类、样本和后续重命名合并的识别参数。','Recognition parameters for speaker clustering, samples, renaming, and merges.','話者クラスタリング、サンプル、後続の名前変更と統合の認識パラメータ。','화자 클러스터링, 샘플, 이후 이름 변경과 병합을 위한 인식 매개변수입니다.'],
+  ['iPhone / Watch 上传入口、去重、导入后分析和缓存清理。','iPhone / Watch upload endpoint, dedupe, post-import analysis, and cache cleanup.','iPhone / Watchアップロード入口、重複排除、インポート後分析、キャッシュ整理。','iPhone / Watch 업로드 진입점, 중복 제거, 가져오기 후 분석, 캐시 정리입니다.'],
+  ['监控文件、分析副本、include/exclude 后缀和分析后移动策略。','Watch files, analysis copies, include/exclude suffixes, and post-analysis move policy.','監視ファイル、分析コピー、include/exclude拡張子、分析後移動方針。','감시 파일, 분석 사본, include/exclude 접미사, 분석 후 이동 정책입니다.'],
+  ['分析后暂存文件的保留时间、清理和恢复边界。','Retention, cleanup, and restore boundaries for files staged after analysis.','分析後に一時保存したファイルの保持時間、整理、復元境界。','분석 후 임시 보관 파일의 보존 시간, 정리, 복원 범위입니다.'],
+  ['日报、周报、月报和旧记录清理窗口。','Daily, weekly, monthly report and old-record cleanup windows.','日報、週報、月報、古い記録の整理期間。','일일/주간/월간 보고서와 오래된 기록 정리 기간입니다.'],
+  ['摘要邮件发送时间、SMTP 和 Keychain 配置。','Summary email schedule, SMTP, and Keychain settings.','要約メールの送信時刻、SMTP、Keychain設定。','요약 이메일 발송 시간, SMTP, Keychain 설정입니다.'],
+  ['文件分析会扫描的桌面端目录。','Desktop directories scanned by file analysis.','ファイル分析がスキャンするデスクトップ側ディレクトリ。','파일 분석이 스캔하는 데스크톱 디렉터리입니다.'],
+  ['浏览器历史或书签采集所需的 profile 路径。','Profile paths needed for browser history or bookmark collection.','ブラウザ履歴またはブックマーク収集に必要なprofileパス。','브라우저 기록 또는 북마크 수집에 필요한 profile 경로입니다.'],
+  ['单次采集、分析或导入的安全上限。','Safety limits for a single collection, analysis, or import.','1回の収集、分析、インポートの安全上限。','단일 수집, 분석 또는 가져오기의 안전 한도입니다.'],
+  ['LaunchAgent、采集频率和后台运行参数。','LaunchAgent, collection cadence, and background runtime parameters.','LaunchAgent、収集頻度、バックグラウンド実行パラメータ。','LaunchAgent, 수집 주기, 백그라운드 실행 매개변수입니다.'],
+  ['采集前台 App','Collect foreground app','前面Appを収集','전면 앱 수집'],
+  ['采集日历','Collect calendar','カレンダーを収集','캘린더 수집'],
+  ['采集提醒事项','Collect reminders','リマインダーを収集','미리 알림 수집'],
+  ['采集浏览器','Collect browsers','ブラウザを収集','브라우저 수집'],
+  ['采集最近文件','Collect recent files','最近のファイルを収集','최근 파일 수집'],
+  ['采集 Messages','Collect Messages','Messagesを収集','Messages 수집'],
+  ['采集 Apple Mail','Collect Apple Mail','Apple Mailを収集','Apple Mail 수집'],
+  ['采集照片位置','Collect photo locations','写真位置を収集','사진 위치 수집'],
+  ['查看该分组原始 JSON','View raw JSON for this group','このグループの生JSONを表示','이 그룹의 원본 JSON 보기'],
+  ['secret/token/key 已隐藏或显示为 configured','secret/token/key values are hidden or shown as configured','secret/token/keyは非表示、またはconfiguredとして表示されます','secret/token/key 값은 숨겨지거나 configured로 표시됩니다'],
+  ['当前没有待处理行动','No pending actions','保留中のアクションはありません','대기 중인 작업 없음'],
+  ['暂无手机快速标注','No mobile quick tags','モバイルクイックタグなし','모바일 빠른 태그 없음'],
+  ['语义搜索索引为空','Semantic search index is empty','セマンティック検索索引が空です','시맨틱 검색 인덱스가 비어 있음'],
+  ['问答无法使用语义相似证据。','Q&A cannot use semantic similarity evidence.','Q&Aでセマンティック類似証拠を使用できません。','Q&A에서 시맨틱 유사 증거를 사용할 수 없습니다.'],
+  ['建立语义索引','Build semantic index','セマンティック索引を構築','시맨틱 인덱스 생성'],
+  ['今天还没有形成明显项目聚类','No clear project clusters today','今日は明確なプロジェクトクラスタがまだありません','오늘 뚜렷한 프로젝트 클러스터가 아직 없음'],
+  ['今天还没有可展示重点','No highlights to show today','今日は表示できるハイライトがまだありません','오늘 표시할 핵심 항목 없음'],
+  ['说话人质量目前没有明显待处理项','Speaker quality has no obvious pending items','話者品質に明確な保留項目はありません','화자 품질에 뚜렷한 대기 항목이 없음'],
+  ['没有匹配的配置分组','No setting groups match','一致する設定グループはありません','일치하는 설정 그룹 없음'],
+  ['这个分组暂时没有开放直接编辑。敏感字段和高风险命令类配置仍保留为只读。','This group is not directly editable yet. Sensitive fields and high-risk command settings remain read-only.','このグループはまだ直接編集できません。機密項目と高リスクなコマンド設定は読み取り専用です。','이 그룹은 아직 직접 편집할 수 없습니다. 민감한 필드와 고위험 명령 설정은 읽기 전용입니다.'],
+  ['保存会立即写入 config.json；后台采集或同步进程通常需要重载后才会使用新配置。','Saving writes to config.json immediately. Background collector or sync processes usually need a reload before they use the new settings.','保存するとすぐにconfig.jsonへ書き込まれます。バックグラウンドの収集や同期プロセスは通常、再読み込み後に新設定を使います。','저장하면 즉시 config.json에 기록됩니다. 백그라운드 수집 또는 동기화 프로세스는 보통 다시 로드해야 새 설정을 사용합니다.'],
+  ['没有检查项','No checks','チェック項目なし','검사 항목 없음'],
+  ['没有服务状态','No service status','サービス状態なし','서비스 상태 없음'],
+  ['没有可用 URL；请确认同步端口配置。','No available URL. Check the sync port configuration.','利用可能なURLがありません。同期ポート設定を確認してください。','사용 가능한 URL이 없습니다. 동기화 포트 설정을 확인하세요.'],
+  ['No records','No records','記録なし','기록 없음'],
+  ['No reports','No reports','レポートなし','보고서 없음'],
+  ['No citations','No citations','引用なし','인용 없음'],
+  ['No settings selected','No settings selected','設定が選択されていません','선택된 설정 없음'],
+  ['No settings','No settings','設定なし','설정 없음'],
+  ['No settings in this group','No settings in this group','このグループに設定はありません','이 그룹에 설정 없음'],
+  ['No health checks','No health checks','ヘルスチェックなし','상태 검사 없음'],
+  ['No failures','No failures','失敗なし','실패 없음'],
+  ['No mobile records','No mobile records','モバイル記録なし','모바일 기록 없음'],
+  ['Run checks','Run checks','チェックを実行','검사 실행'],
+  ['All','All','すべて','전체'],
+  ['Search','Search','検索','검색'],
+  ['Refresh','Refresh','更新','새로고침'],
+  ['Load','Load','読み込み','로드'],
+  ['Rename','Rename','名前変更','이름 변경'],
+  ['Merge','Merge','統合','병합'],
+  ['Restore','Restore','復元','복원'],
+  ['Scan now','Scan now','今すぐスキャン','지금 스캔'],
+  ['Purge dry-run','Purge dry-run','削除プレビュー','삭제 미리보기'],
+  ['Purge due now','Purge due now','期限切れを削除','만료 항목 삭제'],
+  ['Cleanup dry-run','Cleanup dry-run','クリーンアッププレビュー','정리 미리보기'],
+  ['Apply cleanup','Apply cleanup','クリーンアップを適用','정리 적용'],
+  ['Apply retention','Apply retention','保持を適用','보존 적용'],
+  ['Index status','Index status','索引状態','인덱스 상태'],
+  ['Build semantic index','Build semantic index','セマンティック索引を構築','시맨틱 인덱스 생성'],
+  ['Ask local data','Ask local data','ローカルデータに質問','로컬 데이터 질문'],
+  ['OK','OK','OK','확인'],
+  ['FAILED','FAILED','失敗','실패'],
+  ['ok','OK','OK','정상'],
+  ['warn','Warning','警告','경고'],
+  ['fail','Fail','失敗','실패'],
+  ['error','Error','エラー','오류'],
+  ['pending','Pending','保留中','대기 중'],
+  ['disabled','Disabled','無効','비활성'],
+  ['empty','Empty','空','비어 있음'],
+  ['processing','Processing','処理中','처리 중'],
+  ['skipped','Skipped','スキップ','건너뜀'],
+  ['observation','Observation','観測','관측'],
+  ['activity','Activity','アクティビティ','활동'],
+  ['confirmed','Confirmed','確認済み','확인됨'],
+  ['accepted','Accepted','承認済み','승인됨'],
+  ['named','Named','命名済み','이름 지정됨'],
+  ['open','Open','未処理','미처리'],
+  ['done','Done','完了','완료'],
+  ['archived','Archived','アーカイブ済み','보관됨'],
+  ['dismissed','Dismissed','無視済み','무시됨']
+];
+const translationMap = {};
+translationRows.forEach(([source, en, ja, ko]) => {
+  const row = {zh: source, en, ja, ko};
+  [source, en, ja, ko].filter(Boolean).forEach(key => {
+    if(!translationMap[key]) translationMap[key] = row;
+    const lowerKey = String(key).toLowerCase();
+    if(!translationMap[lowerKey]) translationMap[lowerKey] = row;
+  });
+});
+const fragmentTranslationKeys = Object.keys(translationMap)
+  .filter(key => /[一-龥]/.test(key) && (key.length > 1 || ['个','组','项','条','秒','轮'].includes(key)))
+  .sort((a,b) => b.length - a.length);
+function currentLanguage(){ return normalizeLanguage(activeLanguage); }
+function languageHtmlTag(lang=currentLanguage()){
+  return ({en:'en', zh:'zh-CN', ja:'ja-JP', ko:'ko-KR'})[normalizeLanguage(lang)] || 'en';
+}
+function translationFor(text, lang=currentLanguage()){
+  const key = String(text ?? '');
+  const row = translationMap[key] || translationMap[key.toLowerCase()];
+  return row ? (row[normalizeLanguage(lang)] || row.en || String(text ?? '')) : null;
+}
+function t(text){ return translationFor(text) || String(text ?? ''); }
+function translateText(text){
+  const raw = String(text ?? '');
+  if(!raw.trim()) return raw;
+  const leading = raw.match(/^\s*/)?.[0] || '';
+  const trailing = raw.match(/\s*$/)?.[0] || '';
+  const core = raw.slice(leading.length, raw.length - trailing.length);
+  const direct = translationFor(core);
+  if(direct) return leading + direct + trailing;
+  if(currentLanguage() === 'zh' || core.length > 180) return raw;
+  let output = core;
+  fragmentTranslationKeys.forEach(key => {
+    const translated = translationFor(key);
+    if(translated && translated !== key && output.includes(key)) output = output.split(key).join(translated);
+  });
+  return leading + output + trailing;
+}
+function setDocumentLanguage(){
+  document.documentElement.lang = languageHtmlTag();
+}
 const sectionGroups = {
-  today:'日常', action:'日常', inbox:'日常', projects:'日常', memory:'日常', meeting:'日常', search:'日常',
+  today:'日常', action:'日常', inbox:'日常', projects:'日常', memory:'日常', meeting:'日常',
+  search:'记忆', files:'记忆', sources:'记忆', reports:'记忆',
   audio:'音频', 'speaker-training':'音频', speakers:'音频',
-  files:'资料', sources:'资料', reports:'资料',
   setup:'系统', privacy:'系统', sync:'系统', doctor:'系统', settings:'系统',
-  overview:'低频维护工具', timeline:'低频维护工具', recycle:'低频维护工具', maintenance:'低频维护工具'
+  overview:'系统', timeline:'日常', recycle:'系统', maintenance:'系统'
 };
 const navParents = {
-  overview:'today', timeline:'today',
-  inbox:'action', suggestions:'inbox',
-  memory:'projects', meeting:'projects',
+  timeline:'today',
+  inbox:'action', suggestions:'inbox', projects:'action', memory:'action', meeting:'action',
   'speaker-training':'audio', speakers:'audio',
-  sources:'files', reports:'files', recycle:'files',
-  privacy:'setup', sync:'setup', doctor:'setup', settings:'setup', maintenance:'setup'
+  files:'search', sources:'search', reports:'search',
+  overview:'setup', recycle:'setup', privacy:'setup', sync:'setup', doctor:'setup', settings:'setup', maintenance:'setup'
 };
 const sectionTabs = {
-  today: [['today','今天'], ['timeline','时间线'], ['overview','总览']],
-  action: [['action','工作台'], ['inbox','Inbox']],
-  projects: [['projects','项目'], ['memory','记忆'], ['meeting','会议']],
-  audio: [['audio','队列'], ['speaker-training','训练'], ['speakers','说话人']],
-  files: [['files','文件'], ['sources','来源'], ['reports','报告'], ['recycle','回收箱']],
-  setup: [['setup','向导'], ['sync','同步'], ['privacy','隐私'], ['doctor','Doctor'], ['settings','设置'], ['maintenance','维护']]
+  today: [['today','日内时间线'], ['timeline','原始记录']],
+  action: [['action','行动总览'], ['inbox','处理队列'], ['projects','项目聚类'], ['memory','项目记忆'], ['meeting','会议']],
+  search: [['search','资料问答'], ['reports','报告'], ['files','文件'], ['sources','来源']],
+  audio: [['audio','录音队列'], ['speakers','说话人整理'], ['speaker-training','训练闭环']],
+  setup: [['setup','启动向导'], ['sync','手机同步'], ['privacy','隐私保留'], ['doctor','诊断'], ['settings','配置'], ['maintenance','维护'], ['recycle','回收箱'], ['overview','系统总览']]
 };
-const state = { section: 'today', setupToken: '', actionDate: 'today', actionView: 'inbox', inboxDate: 'today', inboxStatus: 'active', inboxPriority: 'all', inboxSource: 'all', inboxType: 'all', inboxQ: '', suggestionDate: 'today', suggestionStatus: 'active', suggestionPriority: 'all', suggestionSource: 'all', suggestionQ: '', projectDate: 'today', projectStatus: 'active', projectSource: 'all', projectQ: '', memoryDate: 'today', memoryStatus: 'active', memoryQ: '', meetingProjectId: '', meetingTitle: '', privacyView: 'all', reportPath: '', reportQ: '', reportCategory: 'all', audioStatus: '', speakerTrainingView: 'needs_work', sourceView: 'all', speakerView: 'active', speakerQ: '', speakerSort: 'review', speakerSelectedIds: [], speakerShownIds: [], speakerBulkTarget: '', speakerSamplesFor: 'visible', speakerSampleView: 'all', speakerSampleQ: '', speakerSampleSort: 'needs_work', speakerContextSource: 'idle', speakerSamples: [], fileView: 'all', fileQ: '', recycleView: 'all', recycleQ: '', syncView: 'all', syncQ: '', settingsGroup: 'collectors', settingsQ: '', timelineDate: 'today', timelineQ: '', timelineSource: 'all', timelineType: 'all', todayDate: 'today', todayQ: '', todayFrom: '', todayTo: '', todayCategory: 'all', doctorStatus: 'all', doctorArea: 'all', searchQ: '', searchSource: '', searchQuestion: '' };
+const state = { language: activeLanguage, section: 'today', setupToken: '', actionDate: 'today', inboxDate: 'today', inboxStatus: 'active', inboxPriority: 'all', inboxSource: 'all', inboxType: 'all', inboxQ: '', suggestionDate: 'today', suggestionStatus: 'active', suggestionPriority: 'all', suggestionSource: 'all', suggestionQ: '', projectDate: 'today', projectStatus: 'active', projectSource: 'all', projectQ: '', memoryDate: 'today', memoryStatus: 'active', memoryQ: '', meetingProjectId: '', meetingTitle: '', privacyView: 'all', reportPath: '', reportQ: '', reportCategory: 'all', audioStatus: '', speakerTrainingView: 'needs_work', sourceView: 'all', speakerView: 'active', speakerQ: '', speakerSort: 'review', speakerSelectedIds: [], speakerShownIds: [], speakerBulkTarget: '', speakerSamplesFor: 'visible', speakerSampleView: 'all', speakerSampleQ: '', speakerSampleSort: 'needs_work', speakerContextSource: 'idle', speakerSamples: [], fileView: 'all', fileQ: '', recycleView: 'all', recycleQ: '', syncView: 'all', syncQ: '', settingsGroup: 'collectors', settingsQ: '', timelineDate: 'today', timelineQ: '', timelineSource: 'all', timelineType: 'all', todayDate: 'today', todayQ: '', todayFrom: '', todayTo: '', todayCategory: 'all', doctorStatus: 'all', doctorArea: 'all', searchQ: '', searchSource: '', searchQuestion: '' };
 const searchSources = [['','全部来源'], ['mobile','mobile'], ['local_ai','local_ai'], ['report','report'], ['filesystem','filesystem'], ['browser','browser'], ['apple_mail','apple_mail']];
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const escAttr = (s) => String(s ?? '').replace(/\\/g, '\\\\').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, "\\'").replace(/\n/g, ' ');
 const jstr = (s) => JSON.stringify(String(s ?? ''));
-const status = (s) => `<span class="status ${esc(s || 'info')}">${esc(s || 'info')}</span>`;
+const status = (s) => {
+  const key = String(s || 'info');
+  return `<span class="status ${esc(key)}">${esc(t(key))}</span>`;
+};
+function askConfirm(message){
+  return window.confirm(translateText(message));
+}
 const sectionTips = {
-  action: '每日工作台会合并今日重点、Action Inbox、修复项、项目聚类和说话人质量。',
-  inbox: '把录音、快速标注、修复项、项目和说话人待处理集中成一个可清空的 Inbox。',
-  projects: '按证据自动聚合今天的主题、项目和相关下一步。',
+  action: '行动总览会合并今日重点、处理队列、修复项、项目聚类和说话人质量。',
+  inbox: '把录音、快速标注、修复项、项目和说话人待处理集中成一个可清空的处理队列。',
+  projects: '按证据自动聚合今天的主题、项目和相关下一步，是行动工作区里的完整项目视图。',
   memory: '把每天的项目聚类和会议结论沉淀为长期项目档案。',
   meeting: '开会时记录议程、笔记和行动项，并回写项目记忆与本地时间线。',
   today: '打开实时日内时间线，合并应用、录音、文件、位置和提醒。',
@@ -871,7 +1710,7 @@ const sectionTips = {
   doctor: '运行本机诊断，检查采集器、同步服务、本地 AI 和数据质量。',
   audio: '查看移动端录音分析队列，并手动触发转写和摘要。',
   'speaker-training': '把样本、embedding、一致性、代表样本、自动整理和人工确认串成一个训练闭环。',
-  search: '对本地记忆做关键词搜索、语义检索和本地问答。',
+  search: '对本地资料做关键词搜索、语义检索和证据问答。',
   timeline: '查看原始事件流，适合排查某一天的底层记录。',
   reports: '打开日报、长期摘要、邮件摘要和反馈记录。',
   sources: '检查各数据来源是否开启、最近是否采集，以及缺少哪些前置文件。',
@@ -883,7 +1722,7 @@ const sectionTips = {
   privacy: '集中查看敏感来源、保留策略、缓存清理、发布边界和隐私风险。',
   sync: '查看 Mac/手机连接、上传缓存、导入缓存、音频分析、去重和清理预览。',
   maintenance: '统一预览和执行数据库记录、运行日志、缓存和回收箱清理。',
-  settings: '查看当前解析后的配置，敏感字段会被隐藏。'
+  settings: '查看和编辑当前配置，敏感字段会被隐藏。'
 };
 const actionTips = {
   collect: '立即采集当天数据，并按配置刷新报告。',
@@ -926,7 +1765,7 @@ const labelTips = {
   '复制': '复制这一项到剪贴板。',
   '复制 token': '复制刚生成的新 token。',
   '复制 URL': '复制这个 Mac 同步地址。',
-  'Run checks': '重新运行 Doctor 诊断。',
+  'Run checks': '重新运行本机诊断。',
   'Run 5': '从音频队列中处理最多 5 条。',
   'Run 20': '从音频队列中处理最多 20 条。',
   '分析 5 条': '从音频队列中处理最多 5 条。',
@@ -964,7 +1803,7 @@ const labelTips = {
   '执行缓存清理': '执行移动端上传缓存和无引用导入目录清理。',
   '回收箱预览': '预览哪些回收箱文件已经到期。',
   '清理回收箱': '永久删除已经到期的回收箱文件。',
-  'Doctor': '跳转到诊断页，检查配置关联的采集器、服务和模型。',
+  '诊断': '跳转到诊断页，检查配置关联的采集器、服务和模型。',
   '保留预览': '只预览长期保留策略会清理的内容。',
   '执行保留': '执行长期保留清理策略。',
   'Apply retention': '执行长期保留清理策略。',
@@ -975,7 +1814,7 @@ const labelTips = {
 };
 let buttonTipObserver = null;
 let activeTipButton = null;
-function toast(msg){ const el=$('toast'); el.textContent=msg; el.classList.add('show'); setTimeout(()=>el.classList.remove('show'), 6500); }
+function toast(msg){ const el=$('toast'); el.textContent=translateText(msg); el.classList.add('show'); setTimeout(()=>el.classList.remove('show'), 6500); }
 async function api(path, opts){ const r=await fetch(path, opts); const j=await r.json(); if(!r.ok) throw new Error(j.error || r.statusText); return j; }
 function canonicalSection(id){ return id === 'mobile' ? 'sync' : (id === 'suggestions' ? 'inbox' : (id || 'today')); }
 function isKnownSection(id){ return allSections.some(s=>s[0]===id); }
@@ -987,9 +1826,9 @@ function nav(){
     if(!bucket){ bucket = {name: group, items: []}; groups.push(bucket); }
     bucket.items.push([id,label]);
   });
-  $('nav').innerHTML = groups.map(group => `<div class="nav-group"><div class="nav-label">${esc(group.name)}</div>${group.items.map(([id,label]) => {
+  $('nav').innerHTML = groups.map(group => `<div class="nav-group"><div class="nav-label">${esc(t(group.name))}</div>${group.items.map(([id,label]) => {
     const active = state.section === id || navParents[state.section] === id;
-    return `<button class="${active?'active':''}" onclick="go('${id}')">${esc(label)}</button>`;
+    return `<button class="${active?'active':''}" onclick="go('${id}')">${esc(t(label))}</button>`;
   }).join('')}</div>`).join('');
 }
 function sectionNav(sectionId=state.section){
@@ -998,14 +1837,16 @@ function sectionNav(sectionId=state.section){
   if(!tabs.length) return '';
   return `<div class="section-tabs">${tabs.map(([id,label]) => {
     const active = state.section === id;
-    return `<button class="filter-pill ${active?'active':''}" onclick="go('${id}')">${esc(label)}</button>`;
+    return `<button class="filter-pill ${active?'active':''}" onclick="go('${id}')">${esc(t(label))}</button>`;
   }).join('')}</div>`;
 }
 function setHeader(title, subtitle='', buttons=''){
   hideButtonTip();
-  $('title').textContent=title;
-  $('subtitle').textContent=subtitle;
+  $('title').textContent=translateText(title);
+  $('subtitle').textContent=translateText(subtitle);
   $('toolbar').innerHTML=`${sectionNav()}${buttons}`;
+  localizeElement($('toolbar'));
+  applyButtonTips($('toolbar'));
   nav();
 }
 async function action(name,args={}){ const j=await api('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,args})}); toast(`${j.ok?'OK':'FAILED'} ${name}\n${j.stdout || j.stderr || ''}`); render(); }
@@ -1025,17 +1866,21 @@ function startButtonTips(){
   }
 }
 function applyButtonTips(root=document){
-  root.querySelectorAll('button').forEach(button => {
-    const tip = button.dataset.tip || inferButtonTip(button);
-    if(!tip) return;
-    button.dataset.tip = tip;
-    button.setAttribute('aria-label', `${buttonText(button)}：${tip}`);
-    button.setAttribute('title', tip);
+  const buttons = root && root.matches && root.matches('button') ? [root] : Array.from((root || document).querySelectorAll ? (root || document).querySelectorAll('button') : []);
+  buttons.forEach(button => {
+    const sourceTip = button.dataset.tipSource || inferButtonTip(button);
+    if(!sourceTip) return;
+    button.dataset.tipSource = sourceTip;
+    const tip = translateText(sourceTip);
+    const label = translateText(buttonText(button));
+    if(button.dataset.tip !== tip) button.dataset.tip = tip;
+    if(button.getAttribute('aria-label') !== `${label}: ${tip}`) button.setAttribute('aria-label', `${label}: ${tip}`);
+    if(button.getAttribute('title') !== tip) button.setAttribute('title', tip);
     button.classList.add('has-tip');
   });
 }
 function inferButtonTip(button){
-  const explicit = button.getAttribute('data-tip');
+  const explicit = button.getAttribute('data-tip-source') || button.getAttribute('data-tip');
   if(explicit) return explicit;
   const click = button.getAttribute('onclick') || '';
   const goMatch = click.match(/go\('([^']+)'\)/);
@@ -1103,9 +1948,127 @@ function positionButtonTip(x, y){
   el.style.left = `${left}px`;
   el.style.top = `${top}px`;
 }
+let localizationObserver = null;
+let localizationScheduled = false;
+let localizationActive = false;
+const i18nAttributeNames = ['placeholder', 'title', 'aria-label'];
+const i18nSkipSelector = [
+  'pre',
+  'code',
+  '.settings-pre',
+  '.report-reader-content',
+  '.result-text',
+  '.event-title',
+  '.event-body',
+  '.timeline-title',
+  '.timeline-body',
+  '.file-title',
+  '.file-body',
+  '.audio-title',
+  '.audio-body',
+  '.sync-title',
+  '.sync-body',
+  '.mobile-title',
+  '.memory-title',
+  '.memory-body',
+  '.meeting-title',
+  '.meeting-body',
+  '.speaker-name',
+  '.speaker-transcript',
+  '.privacy-note',
+  '.source-name',
+  '.source-issue-body',
+  '.check-message',
+  '.fix-command',
+  '.setup-url',
+  '.setup-token-value',
+  '.mono'
+].join(',');
+function startLocalization(){
+  setDocumentLanguage();
+  localizeDocument();
+  if(localizationObserver) return;
+  localizationObserver = new MutationObserver(scheduleLocalization);
+  localizationObserver.observe(document.body, {childList:true, subtree:true, characterData:true, attributes:true, attributeFilter:i18nAttributeNames});
+}
+function scheduleLocalization(){
+  if(localizationActive || localizationScheduled) return;
+  localizationScheduled = true;
+  queueMicrotask(() => {
+    localizationScheduled = false;
+    localizeDocument();
+  });
+}
+function localizeDocument(){
+  if(localizationActive) return;
+  localizationActive = true;
+  try {
+    setDocumentLanguage();
+    if(document.body){
+      localizeElement(document.body);
+      applyButtonTips(document);
+    }
+  } finally {
+    localizationActive = false;
+  }
+}
+function localizeElement(root){
+  if(!root) return;
+  if(root.nodeType === Node.TEXT_NODE){
+    localizeTextNode(root);
+    return;
+  }
+  if(root.nodeType !== Node.ELEMENT_NODE && root.nodeType !== Node.DOCUMENT_NODE) return;
+  const element = root.nodeType === Node.ELEMENT_NODE ? root : null;
+  if(element){
+    localizeAttributes(element);
+    if(shouldSkipI18n(element)) return;
+  }
+  Array.from(root.childNodes || []).forEach(localizeElement);
+}
+function shouldSkipI18n(element){
+  return !!(element && element.closest && element.closest(i18nSkipSelector));
+}
+function localizeTextNode(node){
+  const parent = node.parentElement;
+  if(!parent || shouldSkipI18n(parent)) return;
+  const current = node.nodeValue || '';
+  if(!current.trim()) return;
+  if(node.__i18nSource === undefined || current !== node.__i18nRendered){
+    node.__i18nSource = current;
+  }
+  const rendered = translateText(node.__i18nSource);
+  node.__i18nRendered = rendered;
+  if(current !== rendered) node.nodeValue = rendered;
+}
+function localizeAttributes(element){
+  i18nAttributeNames.forEach(attr => {
+    if(!element.hasAttribute(attr)) return;
+    const current = element.getAttribute(attr) || '';
+    if(!current.trim()) return;
+    const sourceKey = `__i18n_${attr}_source`;
+    const renderedKey = `__i18n_${attr}_rendered`;
+    if(element[sourceKey] === undefined || current !== element[renderedKey]){
+      element[sourceKey] = current;
+    }
+    const rendered = translateText(element[sourceKey]);
+    element[renderedKey] = rendered;
+    if(current !== rendered) element.setAttribute(attr, rendered);
+  });
+}
+function languageOptions(){
+  return supportedLanguages.map(([code,label]) => `<option value="${escAttr(code)}" ${currentLanguage()===code?'selected':''}>${esc(label)}</option>`).join('');
+}
+function setLanguage(value){
+  activeLanguage = normalizeLanguage(value);
+  state.language = activeLanguage;
+  try { localStorage.setItem(languageStorageKey, activeLanguage); } catch {}
+  hideButtonTip();
+  render().then(() => localizeDocument()).catch(e => toast(String(e)));
+}
 async function actionCenter(){
-  const buttons = `<button class="btn" onclick="action('collect',{date:'today'})">采集</button><button class="btn" onclick="action('analyze_audio',{date:${jstr(state.actionDate || 'today')},limit:20})">分析音频</button><button class="btn" onclick="go('inbox')">Action Inbox</button><button class="btn primary" onclick="actionCenter()">刷新</button>`;
-  setHeader('每日工作台','读取中...', buttons);
+  const buttons = `<button class="btn" onclick="action('collect',{date:'today'})">采集</button><button class="btn" onclick="action('analyze_audio',{date:${jstr(state.actionDate || 'today')},limit:20})">分析音频</button><button class="btn" onclick="go('inbox')">处理队列</button><button class="btn primary" onclick="actionCenter()">刷新</button>`;
+  setHeader('行动总览','读取中...', buttons);
   const [center, inbox, quality] = await Promise.all([
     api(`/api/action-center?date=${encodeURIComponent(state.actionDate || 'today')}`),
     api(`/api/action-inbox?date=${encodeURIComponent(state.actionDate || 'today')}&status=active`),
@@ -1115,21 +2078,16 @@ async function actionCenter(){
   const inboxSummary = inbox.summary || {};
   const qualitySummary = quality.summary || {};
   const inboxRows = inbox.items || [];
-  $('subtitle').textContent = `${center.date || ''} · ${inboxRows.length} inbox · ${summary.priority_repairs || 0} 待修复 · ${summary.projects || 0} 项目`;
+  $('subtitle').textContent = `${center.date || ''} · ${inboxRows.length} 待处理 · ${summary.priority_repairs || 0} 待修复 · ${summary.projects || 0} 项目`;
   $('view').innerHTML = `
     <div class="action-hero">
       <section class="card">
-        <div class="section-title"><h3>今天的操作台</h3><span class="muted">${esc(shortDateTime(center.generated_at || ''))}</span></div>
+        <div class="section-title"><h3>行动总览</h3><span class="muted">${esc(shortDateTime(center.generated_at || ''))}</span></div>
         <div class="action-toolbar">
           <input value="${escAttr(state.actionDate || 'today')}" onchange="state.actionDate=this.value || 'today'; actionCenter()" placeholder="today / yesterday / YYYY-MM-DD">
-          <button class="filter-pill ${state.actionView==='all'?'active':''}" onclick="setActionView('all')">全部</button>
-          <button class="filter-pill ${state.actionView==='inbox'?'active':''}" onclick="setActionView('inbox')">Inbox</button>
-          <button class="filter-pill ${state.actionView==='repairs'?'active':''}" onclick="setActionView('repairs')">修复</button>
-          <button class="filter-pill ${state.actionView==='projects'?'active':''}" onclick="setActionView('projects')">项目</button>
-          <button class="filter-pill ${state.actionView==='speakers'?'active':''}" onclick="setActionView('speakers')">Speaker</button>
         </div>
         <div class="action-kpis" style="margin-top:12px">
-          ${actionKpi('Inbox', inboxRows.length, `${inboxSummary.high || 0} high`)}
+          ${actionKpi('待处理', inboxRows.length, `${inboxSummary.high || 0} high`)}
           ${actionKpi('待修复', summary.priority_repairs || 0, 'critical / warn')}
           ${actionKpi('今日证据', summary.observations || 0, `${summary.activity_samples || 0} app samples`)}
           ${actionKpi('Speaker', qualitySummary.needs_work || 0, `avg ${qualitySummary.average_score || 0}`)}
@@ -1138,7 +2096,7 @@ async function actionCenter(){
       <section class="card">
         <div class="section-title"><h3>快速流转</h3><span class="muted">可执行</span></div>
         <div class="overview-actions">
-          <button class="btn primary" onclick="go('inbox')">打开 Inbox</button>
+          <button class="btn primary" onclick="go('inbox')">打开处理队列</button>
           <button class="btn" onclick="runFirstRepair()">执行第一条修复</button>
           <button class="btn" onclick="go('projects')">项目聚类</button>
           <button class="btn" onclick="go('search')">证据问答</button>
@@ -1150,16 +2108,16 @@ async function actionCenter(){
     </div>
     <div class="action-main">
       <div class="action-stack">
-        <section class="card action-section" data-action-section="inbox">
-          <div class="section-title"><h3>Action Inbox</h3><span class="muted">${esc(inboxRows.length)} active</span></div>
+        <section class="card">
+          <div class="section-title"><h3>处理队列摘要</h3><span class="muted">${esc(inboxRows.length)} active</span></div>
           ${actionInboxList(inboxRows.slice(0, 10), {compact:true})}
           ${inboxRows.length > 10 ? `<div class="search-actions" style="margin-top:10px"><button class="btn" onclick="go('inbox')">查看全部 ${esc(inboxRows.length)} 条</button></div>` : ''}
         </section>
-        <section class="card action-section" data-action-section="repairs">
+        <section class="card">
           <div class="section-title"><h3>待修复队列</h3><span class="muted">${esc((center.repair_queue || []).length)} items</span></div>
           ${repairList(center.repair_queue || [])}
         </section>
-        <section class="card action-section" data-action-section="projects">
+        <section class="card">
           <div class="section-title"><h3>项目 / 主题聚类</h3><span class="muted">${esc((center.projects || []).length)} clusters</span></div>
           ${projectList(center.projects || [])}
         </section>
@@ -1169,7 +2127,7 @@ async function actionCenter(){
           <div class="section-title"><h3>今日重点</h3><span class="muted">${esc((center.highlights || []).length)} highlights</span></div>
           ${highlightList(center.highlights || [])}
         </section>
-        <section class="card action-section" data-action-section="speakers">
+        <section class="card">
           <div class="section-title"><h3>说话人质量</h3><span class="muted">${esc(qualitySummary.needs_work || 0)} need work</span></div>
           ${qualityList(quality.speakers || [])}
         </section>
@@ -1177,17 +2135,6 @@ async function actionCenter(){
     </div>`;
   window.__actionCenterData = center;
   window.__inboxItems = inboxRows;
-  applyActionView();
-}
-function setActionView(value){
-  state.actionView = value || 'all';
-  applyActionView();
-}
-function applyActionView(){
-  document.querySelectorAll('.action-section').forEach(section => {
-    const key = section.dataset.actionSection || '';
-    section.style.display = state.actionView === 'all' || state.actionView === key ? '' : 'none';
-  });
 }
 function actionKpi(label, value, hint){
   return `<div class="action-kpi"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div><div class="hint">${esc(hint || '')}</div></div>`;
@@ -1258,8 +2205,8 @@ function runFirstRepair(){
   action(item.action.name, item.action.args || {});
 }
 async function actionInbox(){
-  const buttons = `<button class="btn" onclick="setInboxDate('today')">今天</button><button class="btn" onclick="setInboxDate('yesterday')">昨天</button><button class="btn" onclick="bulkInboxState('done')">当前完成</button><button class="btn" onclick="go('action')">每日工作台</button><button class="btn primary" onclick="actionInbox()">刷新</button>`;
-  setHeader('Action Inbox','读取中...', buttons);
+  const buttons = `<button class="btn" onclick="setInboxDate('today')">今天</button><button class="btn" onclick="setInboxDate('yesterday')">昨天</button><button class="btn" onclick="bulkInboxState('done')">当前完成</button><button class="btn" onclick="go('action')">行动总览</button><button class="btn primary" onclick="actionInbox()">刷新</button>`;
+  setHeader('处理队列','读取中...', buttons);
   const params = new URLSearchParams({date: state.inboxDate || 'today', status: state.inboxStatus || 'active'});
   if(state.inboxQ) params.set('q', state.inboxQ);
   if(state.inboxPriority && state.inboxPriority !== 'all') params.set('priority', state.inboxPriority);
@@ -1274,7 +2221,7 @@ async function actionInbox(){
   $('view').innerHTML = `
     <div class="insight-hero">
       <section class="card">
-        <div class="section-title"><h3>行动收件箱</h3><span class="muted">${esc(shortDateTime(j.generated_at || ''))}</span></div>
+        <div class="section-title"><h3>行动处理队列</h3><span class="muted">${esc(shortDateTime(j.generated_at || ''))}</span></div>
         <div class="insight-toolbar inbox-toolbar">
           <input id="inboxDate" value="${escAttr(state.inboxDate || 'today')}" aria-label="date">
           <input id="inboxQ" value="${escAttr(state.inboxQ || '')}" placeholder="搜索行动、来源、证据" onkeydown="inboxKey(event)" aria-label="search">
@@ -1292,9 +2239,9 @@ async function actionInbox(){
         </div>
       </section>
       <section class="card">
-        <div class="section-title"><h3>处理流</h3><span class="muted">inbox zero</span></div>
+        <div class="section-title"><h3>处理流</h3><span class="muted">清空队列</span></div>
         <div class="overview-actions">
-          <button class="btn" onclick="go('action')">每日工作台</button>
+          <button class="btn" onclick="go('action')">行动总览</button>
           <button class="btn" onclick="go('today')">今天时间线</button>
           <button class="btn" onclick="bulkInboxState('snoozed')">当前稍后</button>
           <button class="btn danger" onclick="bulkInboxState('dismissed')">当前忽略</button>
@@ -1304,7 +2251,7 @@ async function actionInbox(){
     </div>
     <div class="insight-main">
       <section class="card">
-        <div class="section-title"><h3>Inbox 列表</h3><span class="muted">${esc(rows.length)} shown</span></div>
+        <div class="section-title"><h3>队列列表</h3><span class="muted">${esc(rows.length)} shown</span></div>
         ${actionInboxList(rows)}
       </section>
       <aside class="insight-side">
@@ -1431,7 +2378,7 @@ function saveInboxItemNote(button){
 }
 async function bulkInboxState(statusValue){
   const items = window.__inboxItems || [];
-  if(!items.length) return toast('当前 Inbox 为空');
+  if(!items.length) return toast('当前处理队列为空');
   for(const item of items){
     await api('/api/insight-state',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({item_id:item.id,item_type:item.item_type || 'suggestion',status:statusValue})});
   }
@@ -1473,7 +2420,7 @@ async function suggestionInbox(){
       <section class="card">
         <div class="section-title"><h3>处理流</h3><span class="muted">stateful</span></div>
         <div class="overview-actions">
-          <button class="btn" onclick="go('action')">行动中心</button>
+          <button class="btn" onclick="go('action')">行动总览</button>
           <button class="btn" onclick="go('projects')">项目聚类</button>
           <button class="btn" onclick="bulkInsightState('suggestion','snoozed')">当前稍后</button>
           <button class="btn danger" onclick="bulkInsightState('suggestion','dismissed')">当前忽略</button>
@@ -1534,7 +2481,7 @@ function suggestionInboxCard(item){
   </article>`;
 }
 async function projectMemory(){
-  const buttons = `<button class="btn" onclick="setMemoryDate('today')">今天</button><button class="btn" onclick="go('meeting')">Meeting Mode</button><button class="btn" onclick="go('projects')">项目聚类</button><button class="btn primary" onclick="projectMemory()">刷新</button>`;
+  const buttons = `<button class="btn" onclick="setMemoryDate('today')">今天</button><button class="btn" onclick="go('meeting')">会议</button><button class="btn" onclick="go('projects')">项目聚类</button><button class="btn primary" onclick="projectMemory()">刷新</button>`;
   setHeader('项目记忆','读取中...', buttons);
   const params = new URLSearchParams({date: state.memoryDate || 'today', status: state.memoryStatus || 'active'});
   if(state.memoryQ) params.set('q', state.memoryQ);
@@ -1682,8 +2629,8 @@ async function projectMemoryAction(payload){
   render();
 }
 async function meetingMode(){
-  const buttons = `<button class="btn" onclick="go('memory')">项目记忆</button><button class="btn" onclick="go('inbox')">Action Inbox</button><button class="btn primary" onclick="meetingMode()">刷新</button>`;
-  setHeader('Meeting Mode','读取中...', buttons);
+  const buttons = `<button class="btn" onclick="go('memory')">项目记忆</button><button class="btn" onclick="go('inbox')">处理队列</button><button class="btn primary" onclick="meetingMode()">刷新</button>`;
+  setHeader('会议','读取中...', buttons);
   const j = await api('/api/meeting-mode');
   const active = j.active_meeting;
   const projects = j.projects || [];
@@ -1710,7 +2657,7 @@ async function meetingMode(){
           <div class="overview-actions">
             <button class="btn" onclick="go('today')">今天时间线</button>
             <button class="btn" onclick="go('memory')">项目记忆</button>
-            <button class="btn" onclick="go('inbox')">Action Inbox</button>
+            <button class="btn" onclick="go('inbox')">处理队列</button>
             <button class="btn" onclick="go('search')">证据问答</button>
           </div>
         </section>
@@ -1724,7 +2671,7 @@ function startMeetingPanel(projects){
     <select id="meetingProject" style="margin-top:8px">${meetingProjectOptions(projects, state.meetingProjectId)}</select>
     <input id="meetingParticipants" placeholder="参与者，用逗号分隔" style="margin-top:8px">
     <textarea id="meetingAgenda" placeholder="议程 / 想确认的问题" style="margin-top:8px"></textarea>
-    <div class="meeting-actions"><button class="btn primary" onclick="startMeeting()">开始 Meeting Mode</button></div>
+    <div class="meeting-actions"><button class="btn primary" onclick="startMeeting()">开始会议记录</button></div>
   </div>`;
 }
 function activeMeetingPanel(active){
@@ -1732,7 +2679,7 @@ function activeMeetingPanel(active){
     <div class="section-title"><h3>${esc(active.title || '会议')}</h3>${status(active.status || 'active')}</div>
     <div class="item-meta">${esc(shortDateTime(active.started_at || ''))} · ${esc((active.project || {}).title || '未关联项目')}</div>
     ${active.agenda ? `<div class="meeting-body">${esc(active.agenda)}</div>` : ''}
-    <textarea id="meetingNote" placeholder="记录结论、分歧、行动项。包含“需要/确认/回复/截止”等词会进入 Action Inbox。" style="margin-top:10px"></textarea>
+    <textarea id="meetingNote" placeholder="记录结论、分歧、行动项。包含“需要/确认/回复/截止”等词会进入处理队列。" style="margin-top:10px"></textarea>
     <div class="meeting-actions">
       <button class="btn primary" onclick="addMeetingNote('${escAttr(active.id)}')">记录笔记</button>
       <button class="btn danger" onclick="endMeeting('${escAttr(active.id)}')">结束并写入项目记忆</button>
@@ -1763,7 +2710,7 @@ async function startMeeting(){
     agenda: $('meetingAgenda').value,
   };
   const j = await api('/api/meeting-mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-  toast(j.ok ? 'Meeting Mode 已开始' : '开始失败');
+  toast(j.ok ? '会议记录已开始' : '开始失败');
   state.meetingTitle = '';
   meetingMode();
 }
@@ -1809,7 +2756,7 @@ function compactPlain(value, limit){
 }
 async function projectsWorkbench(){
   const buttons = `<button class="btn" onclick="setProjectDate('today')">今天</button><button class="btn" onclick="setProjectDate('yesterday')">昨天</button><button class="btn" onclick="bulkInsightState('project','archived')">当前归档</button><button class="btn primary" onclick="projectsWorkbench()">刷新</button>`;
-  setHeader('项目','读取中...', buttons);
+  setHeader('项目聚类','读取中...', buttons);
   const params = new URLSearchParams({date: state.projectDate || 'today', status: state.projectStatus || 'active'});
   if(state.projectQ) params.set('q', state.projectQ);
   if(state.projectSource && state.projectSource !== 'all') params.set('source', state.projectSource);
@@ -1841,7 +2788,7 @@ async function projectsWorkbench(){
       <section class="card">
         <div class="section-title"><h3>项目动作</h3><span class="muted">curate</span></div>
         <div class="overview-actions">
-          <button class="btn" onclick="go('inbox')">Action Inbox</button>
+          <button class="btn" onclick="go('inbox')">处理队列</button>
           <button class="btn" onclick="go('timeline')">时间线</button>
           <button class="btn" onclick="bulkInsightState('project','snoozed')">当前稍后</button>
           <button class="btn danger" onclick="bulkInsightState('project','archived')">当前归档</button>
@@ -2054,8 +3001,8 @@ async function render(){
   if(state.section==='settings') return settings();
 }
 async function setup(){
-  setHeader('设置向导','读取中...',
-    `<button class="btn primary" onclick="setup()">刷新状态</button><button class="btn" onclick="go('sync')">手机同步</button><button class="btn" onclick="go('doctor')">Doctor</button><button class="btn" onclick="go('settings')">设置</button>`);
+  setHeader('启动向导','读取中...',
+    `<button class="btn primary" onclick="setup()">刷新状态</button>`);
   const j = await api('/api/setup');
   const summary = j.summary || {};
   const syncInfo = j.sync || {};
@@ -2081,7 +3028,6 @@ async function setup(){
           <button class="btn" onclick="action('install_sync_agent',{load:true})">安装同步服务</button>
           <button class="btn" onclick="action('install_agent',{load:true})">安装采集 Agent</button>
           <button class="btn" onclick="action('install_dashboard_agent',{load:true})">安装 Dashboard</button>
-          <button class="btn" onclick="go('doctor')">查看诊断</button>
         </div>
       </section>
     </div>
@@ -2324,8 +3270,8 @@ async function submitFeedback(){
   today();
 }
 async function overview(){
-  setHeader('总览','读取中...',
-    `<button class="btn primary" onclick="action('collect',{date:'today'})">采集并写报告</button><button class="btn" onclick="action('refresh_report',{date:'today'})">刷新今日报告</button><button class="btn" onclick="go('doctor')">Doctor</button><button class="btn" onclick="render()">刷新</button>`);
+  setHeader('系统总览','读取中...',
+    `<button class="btn primary" onclick="action('collect',{date:'today'})">采集并写报告</button><button class="btn" onclick="action('refresh_report',{date:'today'})">刷新今日报告</button><button class="btn" onclick="render()">刷新</button>`);
   const j=await api('/api/overview');
   const health = j.health || {};
   const healthInfo = overviewHealthInfo(health);
@@ -2410,8 +3356,8 @@ function healthLabel(key){
   return ({sync:'Sync server',ollama:'Ollama',agent_plist:'Collector agent',sync_plist:'Sync agent',dashboard_plist:'Dashboard agent'})[key] || key;
 }
 async function doctor(){
-  setHeader('Doctor','读取中...',
-    `<button class="btn primary" onclick="doctor()">Run checks</button><button class="btn" onclick="go('sources')">来源</button><button class="btn" onclick="go('settings')">设置</button>`);
+  setHeader('诊断','读取中...',
+    `<button class="btn primary" onclick="doctor()">Run checks</button><button class="btn" onclick="go('sources')">来源</button>`);
   const j=await api('/api/doctor');
   const checks = j.checks || [];
   const summary = doctorSummary(checks);
@@ -2515,7 +3461,7 @@ function doctorFixList(checks){
 }
 async function audio(){
   setHeader('音频队列','读取中...',
-    `<button class="btn primary" onclick="action('analyze_audio',{limit:5})">分析 5 条</button><button class="btn" onclick="action('analyze_audio',{limit:20})">分析 20 条</button><button class="btn" onclick="go('speakers')">说话人</button><button class="btn" onclick="audio()">刷新</button>`);
+    `<button class="btn primary" onclick="action('analyze_audio',{limit:5})">分析 5 条</button><button class="btn" onclick="action('analyze_audio',{limit:20})">分析 20 条</button><button class="btn" onclick="audio()">刷新</button>`);
   const qs = state.audioStatus ? `?status=${encodeURIComponent(state.audioStatus)}&limit=180` : '?limit=180';
   const j=await api('/api/audio'+qs);
   const summary = j.summary || {};
@@ -2632,10 +3578,10 @@ function formatSeconds(value){
   return `${min}:${sec}`;
 }
 async function search(){
-  setHeader('搜索问答','本地检索、语义召回和证据问答', `<button class="btn" onclick="refreshSearchIndex()">索引状态</button><button class="btn primary" onclick="action('search_index',{limit:5000,force:true})">重建语义索引</button>`);
+  setHeader('资料问答','本地检索、语义召回和证据问答', `<button class="btn" onclick="refreshSearchIndex()">索引状态</button><button class="btn primary" onclick="action('search_index',{limit:5000,force:true})">重建语义索引</button>`);
   $('view').innerHTML = `<div class="search-hero">
     <div class="card">
-      <div class="section-title"><h3>工作台</h3>${status('info')}</div>
+      <div class="section-title"><h3>问答工作区</h3>${status('info')}</div>
       <div class="searchbar">
         <input id="q" value="${esc(state.searchQ)}" placeholder="关键词或问题" oninput="state.searchQ=this.value" onkeydown="searchKey(event)" aria-label="search">
         <select id="src" onchange="setSearchSource(this.value)">${searchSourceOptions(state.searchSource)}</select>
@@ -3202,7 +4148,7 @@ function reportCategoryLabel(value){
 function escText(value){ return String(value ?? ''); }
 async function sources(){
   setHeader('来源','采集器、数据来源和前置条件',
-    `<button class="btn primary" onclick="action('collect',{date:'today'})">采集一次</button><button class="btn" onclick="go('doctor')">Doctor</button><button class="btn" onclick="sources()">刷新</button>`);
+    `<button class="btn primary" onclick="action('collect',{date:'today'})">采集一次</button><button class="btn" onclick="go('doctor')">诊断</button><button class="btn" onclick="sources()">刷新</button>`);
   const j=await api('/api/sources');
   const rows = j.sources || [];
   const shown = filterSourceRows(rows);
@@ -3227,7 +4173,7 @@ async function sources(){
       <div class="source-action-grid">
         <button class="btn primary" onclick="action('collect',{date:'today'})">采集一次</button>
         <button class="btn" onclick="go('timeline')">时间线</button>
-        <button class="btn" onclick="go('doctor')">Doctor</button>
+        <button class="btn" onclick="go('doctor')">诊断</button>
       </div>
     </div>
   </div>
@@ -3350,7 +4296,7 @@ function sourceDistribution(rows){
   return `<div class="timeline-breakdown">${sorted.map(source => `<div class="timeline-breakdown-row" onclick="setSourceView('${escAttr(sourceGroup(source.source))}')"><span>${esc(source.source)}</span><span class="queue-value">${esc(sourceTotalCount(source))}</span></div>`).join('')}</div>`;
 }
 async function speakerTraining(){
-  const buttons = `<button class="btn primary" onclick="runSpeakerTrainingCycle()">跑一轮训练</button><button class="btn" onclick="go('speakers')">说话人</button><button class="btn" onclick="go('audio')">音频队列</button><button class="btn" onclick="runTrainingPayloadAction({name:'speaker_auto_organize',args:{threshold:0.68}})">自动整理后复查</button><button class="btn" onclick="speakerTraining()">刷新</button>`;
+  const buttons = `<button class="btn primary" onclick="runSpeakerTrainingCycle()">跑一轮训练</button><button class="btn" onclick="runTrainingPayloadAction({name:'speaker_auto_organize',args:{threshold:0.68}})">自动整理后复查</button><button class="btn" onclick="speakerTraining()">刷新</button>`;
   setHeader('Speaker 训练闭环','读取中...', buttons);
   const j = await api('/api/speaker-training');
   const summary = j.summary || {};
@@ -3510,11 +4456,11 @@ async function runTrainingAction(button){
 }
 async function runTrainingPayloadAction(payload){
   if(!payload.name) return;
-  if(payload.name === 'speaker_auto_organize' && !confirm('执行自动整理会合并相似 Voice 并隐藏低相似未命名 Voice，继续？')) return;
+  if(payload.name === 'speaker_auto_organize' && !askConfirm('执行自动整理会合并相似 Voice 并隐藏低相似未命名 Voice，继续？')) return;
   await action(payload.name, payload.args || {});
 }
 async function runSpeakerTrainingCycle(){
-  if(!confirm('跑一轮训练会补齐缺失 embedding、重算样本一致性并刷新代表样本；不会自动合并。继续？')) return;
+  if(!askConfirm('跑一轮训练会补齐缺失 embedding、重算样本一致性并刷新代表样本；不会自动合并。继续？')) return;
   const steps = [
     {name:'speaker_repair_embeddings', args:{apply:true}, label:'补 embedding'},
     {name:'speaker_refresh_sample_confidence', args:{}, label:'重算一致性'},
@@ -3542,7 +4488,7 @@ function openTrainingSpeakerSamples(id){
   go('speakers');
 }
 async function speakers(){
-  setHeader('说话人','自动整理、人工确认、样本快速筛选', `<button class="btn" onclick="go('speaker-training')">Speaker 训练</button><button class="btn" onclick="go('audio')">音频队列</button><button class="btn primary" onclick="speakers()">刷新</button>`);
+  setHeader('说话人','自动整理、人工确认、样本快速筛选', `<button class="btn primary" onclick="speakers()">刷新</button>`);
   const [j, quality] = await Promise.all([api('/api/speakers'), api('/api/speaker-quality?view=needs_work')]);
   const speakerRows = j.speakers || [];
   const sampleRows = j.samples || [];
@@ -4192,7 +5138,7 @@ function renameSelectedSpeaker(){
   action('speaker_rename',{speaker_id:speakerId,display_name:displayName});
 }
 function autoOrganizeSpeakers(){
-  if(confirm('自动整理相似声音：按 0.68 自动合并相似声音，并把低相似未命名 Voice 隐藏到单独筛选里？')){
+  if(askConfirm('自动整理相似声音：按 0.68 自动合并相似声音，并把低相似未命名 Voice 隐藏到单独筛选里？')){
     action('speaker_auto_organize',{threshold:0.68});
   }
 }
@@ -4221,7 +5167,7 @@ function confirmVisibleSpeakers(){
     toast('当前队列没有可处理的说话人');
     return;
   }
-  if(confirm(`确认当前队列里的 ${ids.length} 个说话人？`)) action('speaker_confirm',{speaker_ids:ids});
+  if(askConfirm(`确认当前队列里的 ${ids.length} 个说话人？`)) action('speaker_confirm',{speaker_ids:ids});
 }
 function unhideVisibleSpeakers(){
   const ids = visibleSpeakerIds();
@@ -4229,7 +5175,7 @@ function unhideVisibleSpeakers(){
     toast('当前队列没有可处理的说话人');
     return;
   }
-  if(confirm(`取消隐藏当前队列里的 ${ids.length} 个说话人？`)) action('speaker_unhide',{speaker_ids:ids});
+  if(askConfirm(`取消隐藏当前队列里的 ${ids.length} 个说话人？`)) action('speaker_unhide',{speaker_ids:ids});
 }
 function refreshVisibleSpeakerSampleConfidence(){
   const ids = visibleSpeakerIds();
@@ -4278,7 +5224,7 @@ function repairFocusedSampleClips(){
     toast('当前样本筛选没有可处理的样本');
     return;
   }
-  if(confirm(`按当前裁剪策略重裁 ${ids.length} 个样本？只会处理能找到源音频的样本，已确认说话人不会被重新分组。`)){
+  if(askConfirm(`按当前裁剪策略重裁 ${ids.length} 个样本？只会处理能找到源音频的样本，已确认说话人不会被重新分组。`)){
     action('speaker_repair_sample_clips',{sample_ids:ids, apply:true});
   }
 }
@@ -4291,7 +5237,7 @@ function bulkMergeSpeakers(){
     toast('至少勾选两个说话人，或选择一个合并目标');
     return;
   }
-  if(confirm(`把 ${sourceIds.length} 个说话人合并到 ${targetId}？`)) action('speaker_merge_many',{target_id:targetId,source_ids:sourceIds});
+  if(askConfirm(`把 ${sourceIds.length} 个说话人合并到 ${targetId}？`)) action('speaker_merge_many',{target_id:targetId,source_ids:sourceIds});
 }
 function refreshSpeakerSampleConfidence(speakerIds=[]){
   const ids = (speakerIds || []).map(String).filter(Boolean);
@@ -4305,7 +5251,7 @@ function refreshSelectedSpeakerSampleConfidence(){
   refreshSpeakerSampleConfidence(ids);
 }
 function repairSpeakerEmbeddings(){
-  if(confirm('为已有样本补齐缺失的 speaker embedding？这会调用本地 SpeechBrain 模型，可能需要一点时间。')){
+  if(askConfirm('为已有样本补齐缺失的 speaker embedding？这会调用本地 SpeechBrain 模型，可能需要一点时间。')){
     action('speaker_repair_embeddings',{apply:true});
   }
 }
@@ -4314,7 +5260,7 @@ function refreshRepresentativeSamples(){
   action('speaker_refresh_representatives', ids.length ? {speaker_ids:ids, per_speaker:3} : {per_speaker:3});
 }
 function reviveHiddenSpeakers(){
-  if(confirm('把隐藏队列里已经积累足够证据的 Voice 放回人工复查？')){
+  if(askConfirm('把隐藏队列里已经积累足够证据的 Voice 放回人工复查？')){
     action('speaker_revive_hidden',{apply:true,min_samples:2,min_days:2,min_embeddings:2});
   }
 }
@@ -4324,7 +5270,7 @@ function bulkDeleteSpeakers(){
     toast('请先勾选要删除的说话人');
     return;
   }
-  if(confirm(`删除 ${ids.length} 个说话人及其托管样本记录？这个操作不能撤销。`)) action('speaker_delete_many',{speaker_ids:ids});
+  if(askConfirm(`删除 ${ids.length} 个说话人及其托管样本记录？这个操作不能撤销。`)) action('speaker_delete_many',{speaker_ids:ids});
 }
 function fillSpeakerRename(id, name){
   setSpeakerSelectedIds(id ? [id] : []);
@@ -4412,7 +5358,7 @@ function speakerSampleBadges(sample){
 function detachSpeakerSample(sampleId){
   const sample = (state.speakerSamples || []).find(row => String(row.id) === String(sampleId));
   const current = sample ? (sample.speaker_name || sample.speaker_id || '当前说话人') : '当前说话人';
-  if(confirm(`把这个样本从 ${current} 分离出来，并单独新建一个 Voice？`)){
+  if(askConfirm(`把这个样本从 ${current} 分离出来，并单独新建一个 Voice？`)){
     action('speaker_detach_sample', {sample_id: sampleId});
   }
 }
@@ -4628,7 +5574,7 @@ function formatEpoch(value){
 }
 async function recycle(){
   setHeader('回收箱','读取中...',
-    `<button class="btn" onclick="go('files')">文件</button><button class="btn" onclick="action('recycle_purge',{})">预览清理</button><button class="btn danger" onclick="confirm('永久删除已到期的回收箱文件？') && action('recycle_purge',{apply:true})">清理到期</button><button class="btn primary" onclick="recycle()">刷新</button>`);
+    `<button class="btn" onclick="go('files')">文件</button><button class="btn" onclick="action('recycle_purge',{})">预览清理</button><button class="btn danger" onclick="askConfirm('永久删除已到期的回收箱文件？') && action('recycle_purge',{apply:true})">清理到期</button><button class="btn primary" onclick="recycle()">刷新</button>`);
   const j=await api('/api/recycle-bin');
   const entries = j.entries || [];
   const shown = filterRecycleEntries(entries);
@@ -4654,7 +5600,7 @@ async function recycle(){
         ${recyclePreviewPanel(preview)}
         <div class="recycle-actions" style="margin-top:12px">
           <button class="btn" onclick="action('recycle_purge',{})">预览清理</button>
-          <button class="btn danger" onclick="confirm('永久删除已到期的回收箱文件？') && action('recycle_purge',{apply:true})">清理到期</button>
+          <button class="btn danger" onclick="askConfirm('永久删除已到期的回收箱文件？') && action('recycle_purge',{apply:true})">清理到期</button>
         </div>
       </div>
     </div>
@@ -4915,7 +5861,7 @@ async function sync(){
           <button class="btn primary" onclick="sync()">刷新</button>
           <button class="btn" onclick="action('analyze_audio',{limit:20})">分析音频</button>
           <button class="btn" onclick="action('install_sync_agent',{})">重载服务</button>
-          <button class="btn" onclick="go('doctor')">Doctor</button>
+          <button class="btn" onclick="go('doctor')">诊断</button>
         </div>
         <details class="compact-details" style="margin-top:12px">
           <summary>服务详情</summary>
@@ -4947,7 +5893,7 @@ async function sync(){
             ${syncCleanupPanel(cleanup)}
             <div class="sync-actions" style="margin-top:12px">
               <button class="btn" onclick="action('mobile_cleanup',{})">清理预览</button>
-              <button class="btn danger" onclick="confirm('执行移动端缓存清理？') && action('mobile_cleanup',{apply:true})">执行清理</button>
+              <button class="btn danger" onclick="askConfirm('执行移动端缓存清理？') && action('mobile_cleanup',{apply:true})">执行清理</button>
             </div>
           </div>
         </details>
@@ -5102,7 +6048,7 @@ function syncConfigPanel(config){
   return `<div class="sync-config-list">${rows.map(([label,value]) => `<div class="sync-row"><span>${esc(label)}</span><span class="queue-value">${esc(value)}</span></div>`).join('')}</div>`;
 }
 async function privacyCenter(){
-  const buttons = `<button class="btn" onclick="action('retention',{date:'today'})">保留预览</button><button class="btn danger" onclick="confirm('按保留策略删除旧记录、旧运行日志和旧详细报告？') && action('retention',{date:'today',apply:true})">执行保留</button><button class="btn" onclick="go('maintenance')">记录维护</button><button class="btn" onclick="go('settings')">设置</button><button class="btn primary" onclick="privacyCenter()">刷新</button>`;
+  const buttons = `<button class="btn" onclick="action('retention',{date:'today'})">保留预览</button><button class="btn danger" onclick="askConfirm('按保留策略删除旧记录、旧运行日志和旧详细报告？') && action('retention',{date:'today',apply:true})">执行保留</button><button class="btn primary" onclick="privacyCenter()">刷新</button>`;
   setHeader('隐私与保留','读取中...', buttons);
   const j = await api('/api/privacy');
   const summary = j.summary || {};
@@ -5259,7 +6205,7 @@ function privacyRetentionPanel(retention){
     <div class="settings-edit-actions">
       <button class="btn primary" onclick="savePrivacyRetention()">保存保留策略</button>
       <button class="btn" onclick="action('retention',{date:'today'})">重新预览</button>
-      <button class="btn danger" onclick="confirm('按当前保留策略执行删除？') && action('retention',{date:'today',apply:true})">执行清理</button>
+      <button class="btn danger" onclick="askConfirm('按当前保留策略执行删除？') && action('retention',{date:'today',apply:true})">执行清理</button>
     </div>
     <details class="settings-json">
       <summary>查看 dry-run 输出</summary>
@@ -5287,9 +6233,9 @@ function privacyCleanupPanel(cleanup){
     ${rows.map(([label,value,hint]) => maintenanceLine(label, value, hint)).join('')}
     <div class="privacy-actions">
       <button class="btn" onclick="action('mobile_cleanup',{})">缓存预览</button>
-      <button class="btn danger" onclick="confirm('执行移动端缓存清理？') && action('mobile_cleanup',{apply:true})">执行缓存清理</button>
+      <button class="btn danger" onclick="askConfirm('执行移动端缓存清理？') && action('mobile_cleanup',{apply:true})">执行缓存清理</button>
       <button class="btn" onclick="action('recycle_purge',{})">回收箱预览</button>
-      <button class="btn danger" onclick="confirm('永久删除已到期的回收箱文件？') && action('recycle_purge',{apply:true})">清理回收箱</button>
+      <button class="btn danger" onclick="askConfirm('永久删除已到期的回收箱文件？') && action('recycle_purge',{apply:true})">清理回收箱</button>
     </div>
   </div>`;
 }
@@ -5323,7 +6269,7 @@ function privacyStoragePanel(storage){
   </div>`;
 }
 async function maintenance(){
-  const buttons = `<button class="btn" onclick="action('retention',{date:'today'})">记录预览</button><button class="btn danger" onclick="confirm('按保留策略删除旧记录、旧运行日志和旧详细报告？') && action('retention',{date:'today',apply:true})">执行记录清理</button><button class="btn" onclick="action('mobile_cleanup',{})">缓存预览</button><button class="btn" onclick="action('recycle_purge',{})">回收箱预览</button><button class="btn primary" onclick="maintenance()">刷新</button>`;
+  const buttons = `<button class="btn" onclick="action('retention',{date:'today'})">记录预览</button><button class="btn danger" onclick="askConfirm('按保留策略删除旧记录、旧运行日志和旧详细报告？') && action('retention',{date:'today',apply:true})">执行记录清理</button><button class="btn" onclick="action('mobile_cleanup',{})">缓存预览</button><button class="btn" onclick="action('recycle_purge',{})">回收箱预览</button><button class="btn primary" onclick="maintenance()">刷新</button>`;
   setHeader('记录维护','读取中...', buttons);
   const j=await api('/api/maintenance');
   const counts = j.counts || {};
@@ -5350,11 +6296,11 @@ async function maintenance(){
         <div class="section-title"><h3>清理动作</h3><span class="muted">先预览，再执行</span></div>
         <div class="maintenance-action-grid">
           <button class="btn" onclick="action('retention',{date:'today'})">记录预览</button>
-          <button class="btn danger" onclick="confirm('按保留策略删除旧记录、旧运行日志和旧详细报告？') && action('retention',{date:'today',apply:true})">执行记录清理</button>
+          <button class="btn danger" onclick="askConfirm('按保留策略删除旧记录、旧运行日志和旧详细报告？') && action('retention',{date:'today',apply:true})">执行记录清理</button>
           <button class="btn" onclick="action('mobile_cleanup',{})">缓存预览</button>
-          <button class="btn danger" onclick="confirm('执行移动端缓存清理？') && action('mobile_cleanup',{apply:true})">执行缓存清理</button>
+          <button class="btn danger" onclick="askConfirm('执行移动端缓存清理？') && action('mobile_cleanup',{apply:true})">执行缓存清理</button>
           <button class="btn" onclick="action('recycle_purge',{})">回收箱预览</button>
-          <button class="btn danger" onclick="confirm('永久删除已到期的回收箱文件？') && action('recycle_purge',{apply:true})">清理回收箱</button>
+          <button class="btn danger" onclick="askConfirm('永久删除已到期的回收箱文件？') && action('recycle_purge',{apply:true})">清理回收箱</button>
         </div>
       </section>
     </div>
@@ -5442,8 +6388,8 @@ function maintenanceLine(label, value, hint=''){
   return `<div class="maintenance-line"><span>${esc(label)}</span><span><b>${esc(value)}</b>${hint?`<br><span class="muted">${esc(hint)}</span>`:''}</span></div>`;
 }
 async function settings(){
-  const buttons = `<button class="btn" onclick="go('doctor')">Doctor</button><button class="btn" onclick="go('maintenance')">记录维护</button><button class="btn primary" onclick="settings()">刷新</button>`;
-  setHeader('设置','读取中...', buttons);
+  const buttons = `<button class="btn primary" onclick="settings()">刷新</button>`;
+  setHeader('配置','读取中...', buttons);
   const j=await api('/api/settings');
   const cfg = j.settings || {};
   const editable = j.editable || [];
@@ -5460,7 +6406,7 @@ async function settings(){
   const file = cfg.file_analysis || {};
   const audio = cfg.audio_analysis || {};
   const watchPaths = Array.isArray(cfg.watch_paths) ? cfg.watch_paths : [];
-  setHeader('设置',`${editable.length} 项可直接调整；敏感字段已隐藏`, buttons);
+  setHeader('配置',`${editable.length} 项可直接调整；敏感字段已隐藏`, buttons);
   $('view').innerHTML = `
     <div class="settings-hero">
       <section class="card">
@@ -5479,7 +6425,10 @@ async function settings(){
           <span class="settings-chip">Token ${esc(mobile.token || '-')}</span>
         </div>
       </section>
-      ${settingsMaintenancePanel(cfg)}
+      <div class="settings-side">
+        ${settingsLanguagePanel()}
+        ${settingsMaintenancePanel(cfg)}
+      </div>
     </div>
     <div class="settings-main">
       <section class="card">
@@ -5508,6 +6457,18 @@ async function settings(){
 function settingsKpi(label, value, hint){
   const compact = String(value ?? '').length > 12 ? ' compact' : '';
   return `<div class="settings-kpi"><div class="label">${esc(label)}</div><div class="value${compact}">${esc(value ?? '-')}</div><div class="hint">${esc(hint || '')}</div></div>`;
+}
+function settingsLanguagePanel(){
+  return `<section class="card">
+    <div class="section-title"><h3>语言设置</h3><span class="muted">${esc(supportedLanguages.find(([code]) => code === currentLanguage())?.[1] || 'English')}</span></div>
+    <label class="settings-edit-row" style="grid-template-columns: 112px minmax(0, 1fr); border-bottom:0; padding:0">
+      <div class="settings-edit-label"><b>界面语言</b><span>选择界面语言</span></div>
+      <div class="settings-edit-control">
+        <select id="dashboardLanguage" onchange="setLanguage(this.value)" aria-label="Interface language">${languageOptions()}</select>
+      </div>
+    </label>
+    <div class="settings-edit-note">初始语言为英语，切换会保存在此浏览器。</div>
+  </section>`;
 }
 function settingsEditPanel(group, cfg, editable){
   if(!group) return '<div class="empty-state">No settings selected</div>';
@@ -5616,7 +6577,7 @@ function settingsMaintenancePanel(cfg){
     <div class="compact-details-body">
     <div class="settings-action-grid">
       <button class="btn" onclick="action('retention',{date:'today'})">保留预览</button>
-      <button class="btn danger" onclick="confirm('执行长期保留清理？') && action('retention',{date:'today',apply:true})">执行保留</button>
+      <button class="btn danger" onclick="askConfirm('执行长期保留清理？') && action('retention',{date:'today',apply:true})">执行保留</button>
       <button class="btn" onclick="go('files')">文件</button>
       <button class="btn" onclick="go('sync')">手机同步</button>
       <button class="btn" onclick="go('maintenance')">记录维护</button>
@@ -5995,7 +6956,7 @@ function routeHash(){
   }
 }
 window.addEventListener('hashchange', routeHash);
-window.addEventListener('load',()=>{ const raw=location.hash.slice(1); const hash=canonicalSection(raw); if(isKnownSection(hash)){ state.section=hash; if(raw && raw !== hash) history.replaceState(null,'','#'+hash); } nav(); startButtonTips(); render().catch(e=>toast(String(e))); });
+window.addEventListener('load',()=>{ const raw=location.hash.slice(1); const hash=canonicalSection(raw); if(isKnownSection(hash)){ state.section=hash; if(raw && raw !== hash) history.replaceState(null,'','#'+hash); } nav(); startButtonTips(); startLocalization(); render().catch(e=>toast(String(e))); });
 </script>
 </body>
 </html>"""

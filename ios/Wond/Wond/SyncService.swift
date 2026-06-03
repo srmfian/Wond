@@ -29,16 +29,16 @@ struct SyncUploadResponse: Decodable {
     var summaryText: String {
         var parts: [String] = []
         if let imported {
-            parts.append("imported \(imported)")
+            parts.append(WondL10n.format("imported %d", imported))
         }
         if let skipped {
-            parts.append("skipped \(skipped)")
+            parts.append(WondL10n.format("skipped %d", skipped))
         }
         if let analyzed, !analyzed.isEmpty {
-            parts.append("analyzed \(analyzed.count)")
+            parts.append(WondL10n.format("analyzed %d", analyzed.count))
         }
         if let reports, !reports.isEmpty {
-            parts.append("reports \(reports.count)")
+            parts.append(WondL10n.format("reports %d", reports.count))
         }
         return parts.joined(separator: ", ")
     }
@@ -101,15 +101,15 @@ final class SyncService: NSObject, ObservableObject, URLSessionTaskDelegate, URL
         guard !isBrowsing else { return }
         isBrowsing = true
         guard let remoteURL = configuredRemoteURL() else {
-            update("Remote sync URL is required")
+            update(WondL10n.t("Remote sync URL is required"))
             return
         }
-        update("Remote sync ready")
+        update(WondL10n.t("Remote sync ready"))
         if canAutoSyncOnCurrentNetwork(), shouldUploadAutomatically() {
             Task {
                 await upload(
                     to: remoteURL,
-                    destinationName: remoteURL.host ?? "Remote Mac",
+                    destinationName: remoteURL.host ?? WondL10n.t("Remote Mac"),
                     allowCellular: !(wifiOnlyProvider?() ?? true)
                 )
             }
@@ -118,22 +118,22 @@ final class SyncService: NSObject, ObservableObject, URLSessionTaskDelegate, URL
 
     func stop() {
         isBrowsing = false
-        update("Sync stopped")
+        update(WondL10n.t("Sync stopped"))
     }
 
     func syncNow() {
         guard let remoteURL = configuredRemoteURL() else {
-            update("Remote sync URL is required")
+            update(WondL10n.t("Remote sync URL is required"))
             return
         }
         Task {
-            await upload(to: remoteURL, destinationName: remoteURL.host ?? "Remote Mac", allowCellular: true)
+            await upload(to: remoteURL, destinationName: remoteURL.host ?? WondL10n.t("Remote Mac"), allowCellular: true)
         }
     }
 
     func fetchSpeakerReviews() async throws -> [SpeakerReviewItem] {
         guard let url = configuredEndpointURL(path: "/speaker-review") else {
-            throw SyncError.server("Remote sync URL is required")
+            throw SyncError.server(WondL10n.t("Remote sync URL is required"))
         }
         let request = try authenticatedAPIRequest(url: url, method: "GET")
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -144,7 +144,7 @@ final class SyncService: NSObject, ObservableObject, URLSessionTaskDelegate, URL
 
     func fetchSpeakerSample(sampleID: Int) async throws -> Data {
         guard let url = configuredEndpointURL(path: "/speaker-review/sample/\(sampleID)") else {
-            throw SyncError.server("Remote sync URL is required")
+            throw SyncError.server(WondL10n.t("Remote sync URL is required"))
         }
         let request = try authenticatedAPIRequest(url: url, method: "GET")
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -154,7 +154,7 @@ final class SyncService: NSObject, ObservableObject, URLSessionTaskDelegate, URL
 
     func nameSpeaker(id: Int, displayName: String) async throws {
         guard let url = configuredEndpointURL(path: "/speaker-review/name") else {
-            throw SyncError.server("Remote sync URL is required")
+            throw SyncError.server(WondL10n.t("Remote sync URL is required"))
         }
         let payload = NameSpeakerRequest(speakerID: id, displayName: displayName)
         let body = try JSONEncoder().encode(payload)
@@ -166,7 +166,7 @@ final class SyncService: NSObject, ObservableObject, URLSessionTaskDelegate, URL
 
     func ask(question: String) async throws -> AskResponse {
         guard let url = configuredEndpointURL(path: "/ask") else {
-            throw SyncError.server("Remote sync URL is required")
+            throw SyncError.server(WondL10n.t("Remote sync URL is required"))
         }
         let payload = AskRequest(question: question)
         let body = try JSONEncoder().encode(payload)
@@ -176,7 +176,7 @@ final class SyncService: NSObject, ObservableObject, URLSessionTaskDelegate, URL
         try validateHTTPResponse(response, data: data)
         let askResponse = try JSONDecoder().decode(AskResponse.self, from: data)
         if askResponse.ok == false {
-            throw SyncError.server(askResponse.error ?? "Ask failed")
+            throw SyncError.server(askResponse.error ?? WondL10n.t("Ask failed"))
         }
         return askResponse
     }
@@ -187,20 +187,20 @@ final class SyncService: NSObject, ObservableObject, URLSessionTaskDelegate, URL
             lastMacStatus = try await fetchMacStatus()
         } catch {
             lastMacStatusError = error.localizedDescription
-            update("Mac status failed: \(error.localizedDescription)")
+            update(WondL10n.format("Mac status failed: %@", error.localizedDescription))
         }
     }
 
     func fetchMacStatus() async throws -> MacStatusResponse {
         guard let url = configuredEndpointURL(path: "/status") else {
-            throw SyncError.server("Remote sync URL is required")
+            throw SyncError.server(WondL10n.t("Remote sync URL is required"))
         }
         let request = try authenticatedAPIRequest(url: url, method: "GET")
         let (data, response) = try await URLSession.shared.data(for: request)
         try validateHTTPResponse(response, data: data)
         let payload = try JSONDecoder().decode(MacStatusResponse.self, from: data)
         if payload.ok == false {
-            throw SyncError.server("Mac status unavailable")
+            throw SyncError.server(WondL10n.t("Mac status unavailable"))
         }
         return payload
     }
@@ -230,18 +230,18 @@ final class SyncService: NSObject, ObservableObject, URLSessionTaskDelegate, URL
     private func upload(to uploadURL: URL, destinationName: String, allowCellular: Bool) async {
         do {
             isUploading = true
-            update("Preparing today's upload")
+            update(WondL10n.t("Preparing today's upload"))
             let token = tokenProvider?() ?? ""
             guard !token.isEmpty else {
-                throw SyncError.server("Sync token is required for encrypted upload")
+                throw SyncError.server(WondL10n.t("Sync token is required for encrypted upload"))
             }
             guard let uploadPackageProvider else {
-                throw SyncError.server("No upload package provider")
+                throw SyncError.server(WondL10n.t("No upload package provider"))
             }
             let package = try uploadPackageProvider()
             let snapshot = package.snapshot
             guard snapshot.eventCount > 0 else {
-                update("Sync skipped: no new data")
+                update(WondL10n.t("Sync skipped: no new data"))
                 isUploading = false
                 return
             }
@@ -269,9 +269,9 @@ final class SyncService: NSObject, ObservableObject, URLSessionTaskDelegate, URL
             uploadDestinations[task.taskIdentifier] = destinationName
             uploadSnapshots[task.taskIdentifier] = snapshot
             task.resume()
-            update("Queued background upload to \(destinationName)")
+            update(WondL10n.format("Queued background upload to %@", destinationName))
         } catch {
-            update("Sync failed: \(error.localizedDescription)")
+            update(WondL10n.format("Sync failed: %@", error.localizedDescription))
             isUploading = false
         }
     }
@@ -290,36 +290,36 @@ final class SyncService: NSObject, ObservableObject, URLSessionTaskDelegate, URL
             let data = self.responseData.removeValue(forKey: task.taskIdentifier) ?? Data()
             defer { self.isUploading = false }
             if let error {
-                self.update("Sync failed: \(error.localizedDescription)")
+                self.update(WondL10n.format("Sync failed: %@", error.localizedDescription))
                 return
             }
             guard let http = task.response as? HTTPURLResponse else {
-                self.update("Sync failed: invalid response")
+                self.update(WondL10n.t("Sync failed: invalid response"))
                 return
             }
             guard (200..<300).contains(http.statusCode) else {
                 let body = String(data: data, encoding: .utf8) ?? ""
-                self.update("Sync failed: HTTP \(http.statusCode) \(body)")
+                self.update(WondL10n.format("Sync failed: HTTP %d %@", http.statusCode, body))
                 return
             }
             if let response = try? JSONDecoder().decode(SyncUploadResponse.self, from: data) {
                 self.lastUploadResponse = response
                 if response.ok == false {
-                    self.update("Sync failed: \(response.error ?? "server rejected upload")")
+                    self.update(WondL10n.format("Sync failed: %@", response.error ?? WondL10n.t("server rejected upload")))
                     return
                 }
                 if let errors = response.errors, !errors.isEmpty {
-                    self.update("Sync failed: \(errors.prefix(2).joined(separator: "; "))")
+                    self.update(WondL10n.format("Sync failed: %@", errors.prefix(2).joined(separator: "; ")))
                     return
                 }
             }
             if let snapshot {
                 let detail = self.lastUploadResponse?.summaryText ?? ""
                 let suffix = detail.isEmpty ? "" : " (\(detail))"
-                self.update("Synced \(snapshot.eventCount) new items to \(destination)\(suffix)", at: Date())
+                self.update(WondL10n.format("Synced %d new items to %@%@", snapshot.eventCount, destination, suffix), at: Date())
                 self.onUploadAccepted?(snapshot)
             } else {
-                self.update("Synced to \(destination)", at: Date())
+                self.update(WondL10n.format("Synced to %@", destination), at: Date())
             }
         }
     }
@@ -341,7 +341,7 @@ final class SyncService: NSObject, ObservableObject, URLSessionTaskDelegate, URL
         let nonce = try AES.GCM.Nonce(data: nonceBytes)
         let sealed = try AES.GCM.seal(plaintext, using: key, nonce: nonce, authenticating: Data("WondSyncV1".utf8))
         guard let combined = sealed.combined else {
-            throw SyncError.server("Encryption failed")
+            throw SyncError.server(WondL10n.t("Encryption failed"))
         }
         let envelope = EncryptedEnvelope(
             version: 1,
@@ -402,7 +402,7 @@ final class SyncService: NSObject, ObservableObject, URLSessionTaskDelegate, URL
             }
         }
         guard status == Int32(kCCSuccess) else {
-            throw SyncError.server("Key derivation failed")
+            throw SyncError.server(WondL10n.t("Key derivation failed"))
         }
         return SymmetricKey(data: derived)
     }
@@ -438,7 +438,7 @@ final class SyncService: NSObject, ObservableObject, URLSessionTaskDelegate, URL
     private func authenticatedAPIRequest(url: URL, method: String, body: Data = Data()) throws -> URLRequest {
         let token = tokenProvider?() ?? ""
         guard !token.isEmpty else {
-            throw SyncError.server("Sync token is required")
+            throw SyncError.server(WondL10n.t("Sync token is required"))
         }
         let bodyHash = sha256Hex(body)
         let timestamp = String(Int(Date().timeIntervalSince1970))
@@ -496,7 +496,7 @@ enum SyncError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidResponse:
-            return "Invalid server response"
+            return WondL10n.t("Invalid server response")
         case .server(let message):
             return message
         }

@@ -80,7 +80,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
             state = openSession.state == .recording ? .paused : openSession.state
             if openSession.state == .interrupted {
                 shouldResumeAfterInterruption = true
-                scheduleInterruptionRecovery(reason: "Recovered an interrupted session after app launch", delay: 1.0)
+                scheduleInterruptionRecovery(reason: WondL10n.t("Recovered an interrupted session after app launch"), delay: 1.0)
             }
         }
         if settings.autoSyncEnabled {
@@ -149,13 +149,13 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
         lastError = nil
         guard !isInSleepQuietHours() else {
             stopRecordingForSleepQuietHours()
-            lastError = "Recording is stopped during quiet hours."
+            lastError = WondL10n.t("Recording is stopped during quiet hours.")
             return
         }
         do {
             guard await requestMicrophonePermission() else {
                 state = .permissionNeeded
-                lastError = "Microphone permission is required."
+                lastError = WondL10n.t("Microphone permission is required.")
                 return
             }
             Self.requestPassiveStopNotificationPermission()
@@ -213,7 +213,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
         save()
     }
 
-    func addBookmark(title: String = "Important moment", note: String? = "Marked on iPhone") {
+    func addBookmark(title: String = WondL10n.t("Important moment"), note: String? = WondL10n.t("Marked on iPhone")) {
         let observedAt = Date()
         let bookmark = BookmarkRecord(
             id: "bookmark-\(filenameTimestamp(observedAt))",
@@ -529,39 +529,8 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
             settings.uploadedEventFingerprints[eventID] = fingerprint
         }
         settings.lastUploadedExportFingerprint = snapshot.fingerprint
-        removeUploadedLocalEvents(eventIDs: Set(snapshot.eventFingerprints.keys))
         pruneUploadedEventFingerprints()
         save()
-    }
-
-    private func removeUploadedLocalEvents(eventIDs: Set<String>) {
-        guard !eventIDs.isEmpty else { return }
-
-        let activeID = activeSegmentID
-        let uploadedSegments = segments.filter { segment in
-            eventIDs.contains(segment.id) && segment.id != activeID
-        }
-        for segment in uploadedSegments {
-            let url = documentsURL.appendingPathComponent(segment.mediaPath)
-            try? fileManager.removeItem(at: url)
-        }
-        let uploadedSegmentIDs = Set(uploadedSegments.map(\.id))
-        segments.removeAll { uploadedSegmentIDs.contains($0.id) }
-        bookmarks.removeAll { eventIDs.contains($0.id) }
-        quickTags.removeAll { eventIDs.contains($0.id) }
-        locations.removeAll { eventIDs.contains($0.id) }
-
-        let referencedSessionIDs = Set(
-            segments.map(\.recordingSessionID)
-                + bookmarks.compactMap(\.recordingSessionID)
-                + quickTags.compactMap(\.recordingSessionID)
-        )
-        let currentSessionID = currentSession?.id
-        sessions.removeAll { session in
-            if session.id == currentSessionID { return false }
-            return !referencedSessionIDs.contains(session.id)
-        }
-        pruneEmptyRecordingFolders()
     }
 
     private func countPendingUploadEvents(onlyToday: Bool) -> Int {
@@ -635,24 +604,24 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
             guard state == .recording else { return }
             shouldResumeAfterInterruption = true
             interruptionRecoveryTask?.cancel()
-            addBookmark(title: "Recording interrupted", note: "Audio session interruption began")
+            addBookmark(title: WondL10n.t("Recording interrupted"), note: WondL10n.t("Audio session interruption began"))
             state = .interrupted
             updateCurrentSessionState(.interrupted)
             recorder?.stop()
             recorder = nil
             stopUITimer()
             notifyPassiveRecordingStop(
-                title: "Recording interrupted",
-                body: "Audio recording stopped unexpectedly. Wond will try to resume."
+                title: WondL10n.t("Recording interrupted"),
+                body: WondL10n.t("Audio recording stopped unexpectedly. Wond will try to resume.")
             )
             save()
         case .ended:
             let optionsRaw = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
             let options = AVAudioSession.InterruptionOptions(rawValue: optionsRaw)
             let note = options.contains(.shouldResume)
-                ? "Audio session interruption ended; iOS allowed resume"
-                : "Audio session interruption ended; restoring because recording was active before interruption"
-            addBookmark(title: "Recording interruption ended", note: note)
+                ? WondL10n.t("Audio session interruption ended; iOS allowed resume")
+                : WondL10n.t("Audio session interruption ended; restoring because recording was active before interruption")
+            addBookmark(title: WondL10n.t("Recording interruption ended"), note: note)
             if shouldResumeAfterInterruption {
                 scheduleInterruptionRecovery(reason: note, delay: 0.8)
             }
@@ -664,25 +633,25 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
     @objc private func handleRouteChange(_ notification: Notification) {
         guard state == .recording || state == .paused || state == .interrupted else { return }
         let reasonRaw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
-        let reason = reasonRaw.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))?.label ?? "unknown"
-        addBookmark(title: "Audio route changed", note: reason)
+        let reason = reasonRaw.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))?.label ?? WondL10n.t("unknown")
+        addBookmark(title: WondL10n.t("Audio route changed"), note: reason)
     }
 
     @objc private func handleMediaServicesReset(_ notification: Notification) {
         guard state == .recording || state == .paused || state == .interrupted else { return }
         shouldResumeAfterInterruption = state == .recording || state == .interrupted
-        addBookmark(title: "Audio service reset", note: "Media services reset by iOS")
+        addBookmark(title: WondL10n.t("Audio service reset"), note: WondL10n.t("Media services reset by iOS"))
         state = .interrupted
         updateCurrentSessionState(.interrupted)
         recorder = nil
         stopUITimer()
         notifyPassiveRecordingStop(
-            title: "Recording stopped",
-            body: "iOS reset audio services. Wond will try to resume recording."
+            title: WondL10n.t("Recording stopped"),
+            body: WondL10n.t("iOS reset audio services. Wond will try to resume recording.")
         )
         save()
         if shouldResumeAfterInterruption {
-            scheduleInterruptionRecovery(reason: "Media services reset by iOS", delay: 1.5)
+            scheduleInterruptionRecovery(reason: WondL10n.t("Media services reset by iOS"), delay: 1.5)
         }
     }
 
@@ -691,8 +660,8 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
               currentSession?.endedAt == nil
         else { return }
         shouldResumeAfterInterruption = true
-        addBookmark(title: "Recording recovery check", note: "App became active while recording was interrupted")
-        scheduleInterruptionRecovery(reason: "App became active while recording was interrupted", delay: 0.5)
+        addBookmark(title: WondL10n.t("Recording recovery check"), note: WondL10n.t("App became active while recording was interrupted"))
+        scheduleInterruptionRecovery(reason: WondL10n.t("App became active while recording was interrupted"), delay: 0.5)
     }
 
     private func scheduleInterruptionRecovery(reason: String, delay: TimeInterval) {
@@ -728,17 +697,17 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
             shouldResumeAfterInterruption = false
             interruptionRecoveryAttempts = 0
             lastError = nil
-            addBookmark(title: "Recording resumed after interruption", note: reason)
+            addBookmark(title: WondL10n.t("Recording resumed after interruption"), note: reason)
             return
         }
 
-        let failure = lastError ?? "Could not restart after audio interruption"
-        addBookmark(title: "Recording resume failed", note: failure)
+        let failure = lastError ?? WondL10n.t("Could not restart after audio interruption")
+        addBookmark(title: WondL10n.t("Recording resume failed"), note: failure)
         if interruptionRecoveryAttempts < 4 {
             scheduleInterruptionRecovery(reason: reason, delay: 5.0)
         } else {
             notifyPassiveRecordingStop(
-                title: "Recording could not resume",
+                title: WondL10n.t("Recording could not resume"),
                 body: failure
             )
         }
@@ -831,7 +800,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
             segments[index].fileSize = size.int64Value
         }
         if !successfully {
-            lastError = "The last segment did not finish cleanly."
+            lastError = WondL10n.t("The last segment did not finish cleanly.")
         }
         self.activeSegmentID = nil
         save()
@@ -843,8 +812,8 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
                 state = .failed
                 lastError = error.localizedDescription
                 notifyPassiveRecordingStop(
-                    title: "Recording stopped",
-                    body: "Could not start the next audio segment: \(error.localizedDescription)"
+                    title: WondL10n.t("Recording stopped"),
+                    body: WondL10n.format("Could not start the next audio segment: %@", error.localizedDescription)
                 )
                 save()
             }
@@ -860,10 +829,10 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
     nonisolated func audioRecorderEncodeErrorDidOccur(_ recorder: AVAudioRecorder, error: Error?) {
         Task { @MainActor [weak self] in
             self?.state = .failed
-            self?.lastError = error?.localizedDescription ?? "Audio encoding failed."
+            self?.lastError = error?.localizedDescription ?? WondL10n.t("Audio encoding failed.")
             self?.notifyPassiveRecordingStop(
-                title: "Recording failed",
-                body: error?.localizedDescription ?? "Audio encoding failed."
+                title: WondL10n.t("Recording failed"),
+                body: error?.localizedDescription ?? WondL10n.t("Audio encoding failed.")
             )
             self?.save()
         }
@@ -930,16 +899,16 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
             return
         }
         guard CLLocationManager.locationServicesEnabled() else {
-            locationStatusMessage = "Location services are disabled"
+            locationStatusMessage = WondL10n.t("Location services are disabled")
             return
         }
 
         switch locationManager.authorizationStatus {
         case .notDetermined:
-            locationStatusMessage = "Location permission requested"
+            locationStatusMessage = WondL10n.t("Location permission requested")
             locationManager.requestWhenInUseAuthorization()
         case .restricted, .denied:
-            locationStatusMessage = "Location permission is disabled"
+            locationStatusMessage = WondL10n.t("Location permission is disabled")
         case .authorizedWhenInUse:
             if settings.locationMode == .continuous {
                 locationManager.requestAlwaysAuthorization()
@@ -948,7 +917,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
         case .authorizedAlways:
             startConfiguredLocationMode()
         @unknown default:
-            locationStatusMessage = "Location permission state is unknown"
+            locationStatusMessage = WondL10n.t("Location permission state is unknown")
         }
     }
 
@@ -967,7 +936,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
             locationManager.distanceFilter = 200
             locationManager.startMonitoringSignificantLocationChanges()
             requestLocationSampleIfNeeded()
-            locationStatusMessage = latestLocation?.label ?? "Waiting for location"
+            locationStatusMessage = latestLocation?.label ?? WondL10n.t("Waiting for location")
         case .periodic:
             locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
             locationManager.distanceFilter = 100
@@ -977,12 +946,12 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
                     self?.requestLocationSampleIfNeeded()
                 }
             }
-            locationStatusMessage = latestLocation?.label ?? "Waiting for location"
+            locationStatusMessage = latestLocation?.label ?? WondL10n.t("Waiting for location")
         case .continuous:
             locationManager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
             locationManager.distanceFilter = 25
             locationManager.startUpdatingLocation()
-            locationStatusMessage = latestLocation?.label ?? "Waiting for location"
+            locationStatusMessage = latestLocation?.label ?? WondL10n.t("Waiting for location")
         }
     }
 
@@ -1014,21 +983,21 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
             self?.isRequestingOneShotLocation = false
             guard let self else { return }
             guard let locationError = error as? CLError else {
-                self.locationStatusMessage = "Location update failed"
+                self.locationStatusMessage = WondL10n.t("Location update failed")
                 return
             }
 
             switch locationError.code {
             case .locationUnknown:
-                self.locationStatusMessage = "Waiting for location"
+                self.locationStatusMessage = WondL10n.t("Waiting for location")
             case .denied:
                 manager.stopUpdatingLocation()
                 manager.stopMonitoringSignificantLocationChanges()
-                self.locationStatusMessage = "Location permission is disabled"
+                self.locationStatusMessage = WondL10n.t("Location permission is disabled")
             case .network:
-                self.locationStatusMessage = "Location lookup is waiting for network"
+                self.locationStatusMessage = WondL10n.t("Location lookup is waiting for network")
             default:
-                self.locationStatusMessage = "Location update failed"
+                self.locationStatusMessage = WondL10n.t("Location update failed")
             }
         }
     }
@@ -1063,7 +1032,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
         )
         locations.append(point)
         attachLocationToActiveRecords(point)
-        locationStatusMessage = "Resolving address"
+        locationStatusMessage = WondL10n.t("Resolving address")
         save()
         reverseGeocode(point, from: location)
     }
@@ -1268,12 +1237,12 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
         }
 
         addBookmark(
-            title: "Recording stopped for quiet hours",
-            note: "Quiet schedule is active"
+            title: WondL10n.t("Recording stopped for quiet hours"),
+            note: WondL10n.t("Quiet schedule is active")
         )
         notifyPassiveRecordingStop(
-            title: "Recording stopped for quiet hours",
-            body: "The quiet schedule is active, so Wond stopped recording."
+            title: WondL10n.t("Recording stopped for quiet hours"),
+            body: WondL10n.t("The quiet schedule is active, so Wond stopped recording.")
         )
         stopRecording()
     }
@@ -1342,7 +1311,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
                     device: segment.device,
                     mediaPath: segment.mediaPath,
                     transcript: segment.transcript,
-                    title: "Audio segment",
+                    title: WondL10n.t("Audio segment"),
                     note: nil,
                     location: segment.location.map(MobileExportLocation.init)
                 )
@@ -1406,7 +1375,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
                     device: UIDevice.current.name,
                     mediaPath: nil,
                     transcript: nil,
-                    title: "Location sample",
+                    title: WondL10n.t("Location sample"),
                     note: location.address ?? location.placeName,
                     location: MobileExportLocation(location)
                 )
@@ -1494,7 +1463,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
 
     private func save() {
         guard !didFailLoadingDatabase else {
-            lastError = "Local data could not be loaded, so changes were not saved."
+            lastError = WondL10n.t("Local data could not be loaded, so changes were not saved.")
             return
         }
         let database = CaptureDatabase(
@@ -1558,23 +1527,23 @@ private extension AVAudioSession.RouteChangeReason {
     var label: String {
         switch self {
         case .unknown:
-            return "unknown"
+            return WondL10n.t("unknown")
         case .newDeviceAvailable:
-            return "new device available"
+            return WondL10n.t("new device available")
         case .oldDeviceUnavailable:
-            return "old device unavailable"
+            return WondL10n.t("old device unavailable")
         case .categoryChange:
-            return "category change"
+            return WondL10n.t("category change")
         case .override:
-            return "override"
+            return WondL10n.t("override")
         case .wakeFromSleep:
-            return "wake from sleep"
+            return WondL10n.t("wake from sleep")
         case .noSuitableRouteForCategory:
-            return "no suitable route"
+            return WondL10n.t("no suitable route")
         case .routeConfigurationChange:
-            return "route configuration change"
+            return WondL10n.t("route configuration change")
         @unknown default:
-            return "unknown"
+            return WondL10n.t("unknown")
         }
     }
 }

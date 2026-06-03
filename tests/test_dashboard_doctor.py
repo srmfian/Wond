@@ -98,6 +98,26 @@ class DashboardDoctorTests(unittest.TestCase):
         self.assertIn("buttonTooltip", DASHBOARD_HTML)
         self.assertIn("function applyButtonTips", DASHBOARD_HTML)
         self.assertIn("const actionTips", DASHBOARD_HTML)
+        self.assertIn("data-tip-source", DASHBOARD_HTML)
+        self.assertIn("button.dataset.tipSource", DASHBOARD_HTML)
+        self.assertIn("Refresh semantic index status.", DASHBOARD_HTML)
+
+    def test_dashboard_has_multilingual_ui_runtime(self):
+        self.assertIn('<html lang="en">', DASHBOARD_HTML)
+        self.assertIn("const supportedLanguages", DASHBOARD_HTML)
+        self.assertIn("['en', 'English']", DASHBOARD_HTML)
+        self.assertIn("['zh', '中文']", DASHBOARD_HTML)
+        self.assertIn("['ja', '日本語']", DASHBOARD_HTML)
+        self.assertIn("['ko', '한국어']", DASHBOARD_HTML)
+        self.assertIn("languageStorageKey = 'wond.dashboard.language'", DASHBOARD_HTML)
+        self.assertIn("function setLanguage", DASHBOARD_HTML)
+        self.assertIn("function startLocalization", DASHBOARD_HTML)
+        self.assertIn("settingsLanguagePanel", DASHBOARD_HTML)
+        self.assertIn("const i18nAttributeNames = ['placeholder', 'title', 'aria-label']", DASHBOARD_HTML)
+        self.assertIn("function askConfirm", DASHBOARD_HTML)
+        self.assertIn("['关键词或问题','Keyword or question'", DASHBOARD_HTML)
+        self.assertIn("['索引状态','Index status'", DASHBOARD_HTML)
+        self.assertIn("['向本地资料提问，例如：今天录音里有什么值得跟进？','Ask local knowledge", DASHBOARD_HTML)
 
     def test_mobile_status_is_integrated_into_sync_tab(self):
         self.assertIn("['sync','手机同步']", DASHBOARD_HTML)
@@ -106,7 +126,8 @@ class DashboardDoctorTests(unittest.TestCase):
         self.assertNotIn("['mobile','手机状态']", DASHBOARD_HTML)
 
     def test_dashboard_has_setup_wizard(self):
-        self.assertIn("['setup','设置向导']", DASHBOARD_HTML)
+        self.assertIn("['setup','系统']", DASHBOARD_HTML)
+        self.assertIn("['setup','启动向导']", DASHBOARD_HTML)
         self.assertIn("/api/setup", DASHBOARD_HTML)
         self.assertIn("async function setup", DASHBOARD_HTML)
         self.assertIn("setupGenerateToken", DASHBOARD_HTML)
@@ -114,8 +135,9 @@ class DashboardDoctorTests(unittest.TestCase):
         self.assertIn("copyFromButton", DASHBOARD_HTML)
 
     def test_dashboard_has_action_inbox_and_daily_workbench(self):
-        self.assertIn("['action','每日工作台']", DASHBOARD_HTML)
-        self.assertIn("['inbox','Action Inbox']", DASHBOARD_HTML)
+        self.assertIn("['action','行动']", DASHBOARD_HTML)
+        self.assertIn("['action','行动总览']", DASHBOARD_HTML)
+        self.assertIn("['inbox','处理队列']", DASHBOARD_HTML)
         self.assertIn("/api/action-inbox", DASHBOARD_HTML)
         self.assertIn("async function actionInbox", DASHBOARD_HTML)
         self.assertIn("function inboxCard", DASHBOARD_HTML)
@@ -123,7 +145,7 @@ class DashboardDoctorTests(unittest.TestCase):
 
     def test_dashboard_has_project_memory_and_meeting_mode(self):
         self.assertIn("['memory','项目记忆']", DASHBOARD_HTML)
-        self.assertIn("['meeting','Meeting Mode']", DASHBOARD_HTML)
+        self.assertIn("['meeting','会议']", DASHBOARD_HTML)
         self.assertIn("/api/project-memory", DASHBOARD_HTML)
         self.assertIn("/api/meeting-mode", DASHBOARD_HTML)
         self.assertIn("async function projectMemory", DASHBOARD_HTML)
@@ -372,7 +394,7 @@ class DashboardDoctorTests(unittest.TestCase):
         self.assertIn("/api/maintenance", DASHBOARD_HTML)
         self.assertIn("执行记录清理", DASHBOARD_HTML)
 
-    def test_dashboard_nav_is_grouped_and_low_frequency_pages_are_utilities(self):
+    def test_dashboard_nav_is_grouped_into_five_workspaces(self):
         self.assertIn("const utilitySections", DASHBOARD_HTML)
         self.assertIn("const childSections", DASHBOARD_HTML)
         self.assertIn("const sectionGroups", DASHBOARD_HTML)
@@ -380,14 +402,17 @@ class DashboardDoctorTests(unittest.TestCase):
         self.assertIn("const sectionTabs", DASHBOARD_HTML)
         self.assertIn("function sectionNav", DASHBOARD_HTML)
         self.assertIn("section: 'today'", DASHBOARD_HTML)
+        self.assertIn("const sections = [\n  ['today','今天'], ['action','行动'], ['search','资料'], ['audio','音频'], ['setup','系统']\n];", DASHBOARD_HTML)
         self.assertIn("['today','今天']", DASHBOARD_HTML)
         self.assertIn("['recycle','回收箱']", DASHBOARD_HTML)
         self.assertIn("inbox:'action'", DASHBOARD_HTML)
-        self.assertIn("memory:'projects'", DASHBOARD_HTML)
+        self.assertIn("projects:'action'", DASHBOARD_HTML)
+        self.assertIn("memory:'action'", DASHBOARD_HTML)
         self.assertIn("'speaker-training':'audio'", DASHBOARD_HTML)
+        self.assertIn("files:'search'", DASHBOARD_HTML)
         self.assertIn("privacy:'setup'", DASHBOARD_HTML)
         self.assertIn("maintenance:'setup'", DASHBOARD_HTML)
-        self.assertIn("低频维护工具", DASHBOARD_HTML)
+        self.assertIn("overview:'setup'", DASHBOARD_HTML)
 
     def test_speakers_tab_has_review_workflow_controls(self):
         self.assertIn("speakerOperationPanel", DASHBOARD_HTML)

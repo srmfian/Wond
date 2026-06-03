@@ -15,6 +15,7 @@
 		AA0000000000000000000106 /* ShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000206 /* ShareSheet.swift */; };
 		AA0000000000000000000107 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000207 /* Models.swift */; };
 		AA0000000000000000000108 /* CaptureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000208 /* CaptureStore.swift */; };
+		AA0000000000000000000109 /* WondL10n.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000209 /* WondL10n.swift */; };
 		AA0000000000000000000122 /* CaptureStoreSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000224 /* CaptureStoreSupport.swift */; };
 		AA0000000000000000000110 /* ZipWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000210 /* ZipWriter.swift */; };
 		AA0000000000000000000111 /* Formatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000211 /* Formatters.swift */; };
@@ -28,6 +29,9 @@
 		AA0000000000000000000118 /* WondWatchApp.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000302 /* WondWatchApp.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		AA0000000000000000000119 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000220 /* Assets.xcassets */; };
 		AA0000000000000000000120 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000221 /* Assets.xcassets */; };
+		AA0000000000000000000123 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000226 /* Localizable.strings */; };
+		AA0000000000000000000124 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000226 /* Localizable.strings */; };
+		AA0000000000000000000125 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000230 /* InfoPlist.strings */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -63,6 +67,7 @@
 		AA0000000000000000000206 /* ShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheet.swift; sourceTree = "<group>"; };
 		AA0000000000000000000207 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		AA0000000000000000000208 /* CaptureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureStore.swift; sourceTree = "<group>"; };
+		AA0000000000000000000209 /* WondL10n.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WondL10n.swift; sourceTree = "<group>"; };
 		AA0000000000000000000224 /* CaptureStoreSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureStoreSupport.swift; sourceTree = "<group>"; };
 		AA0000000000000000000210 /* ZipWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZipWriter.swift; sourceTree = "<group>"; };
 		AA0000000000000000000211 /* Formatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Formatters.swift; sourceTree = "<group>"; };
@@ -79,6 +84,12 @@
 		AA0000000000000000000221 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA0000000000000000000223 /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
 		AA0000000000000000000225 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
+		AA0000000000000000000227 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		AA0000000000000000000228 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/Localizable.strings; sourceTree = "<group>"; };
+		AA0000000000000000000229 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/Localizable.strings; sourceTree = "<group>"; };
+		AA0000000000000000000231 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
+		AA0000000000000000000232 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		AA0000000000000000000233 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = ko.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		AA0000000000000000000301 /* Wond.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Wond.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000000000000000000302 /* WondWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WondWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -122,6 +133,7 @@
 				AA0000000000000000000206 /* ShareSheet.swift */,
 				AA0000000000000000000207 /* Models.swift */,
 				AA0000000000000000000208 /* CaptureStore.swift */,
+				AA0000000000000000000209 /* WondL10n.swift */,
 				AA0000000000000000000224 /* CaptureStoreSupport.swift */,
 				AA0000000000000000000213 /* SyncService.swift */,
 				AA0000000000000000000215 /* WatchTransferService.swift */,
@@ -129,6 +141,8 @@
 				AA0000000000000000000214 /* SpeakerReviewView.swift */,
 				AA0000000000000000000210 /* ZipWriter.swift */,
 				AA0000000000000000000211 /* Formatters.swift */,
+				AA0000000000000000000226 /* Localizable.strings */,
+				AA0000000000000000000230 /* InfoPlist.strings */,
 				AA0000000000000000000220 /* Assets.xcassets */,
 				AA0000000000000000000212 /* Info.plist */,
 			);
@@ -229,6 +243,9 @@
 			knownRegions = (
 				en,
 				Base,
+				"zh-Hans",
+				ja,
+				ko,
 			);
 			mainGroup = AA0000000000000000000501;
 			productRefGroup = AA0000000000000000000503 /* Products */;
@@ -247,6 +264,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA0000000000000000000119 /* Assets.xcassets in Resources */,
+				AA0000000000000000000123 /* Localizable.strings in Resources */,
+				AA0000000000000000000125 /* InfoPlist.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -255,6 +274,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA0000000000000000000120 /* Assets.xcassets in Resources */,
+				AA0000000000000000000124 /* Localizable.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -273,6 +293,7 @@
 				AA0000000000000000000106 /* ShareSheet.swift in Sources */,
 				AA0000000000000000000107 /* Models.swift in Sources */,
 				AA0000000000000000000108 /* CaptureStore.swift in Sources */,
+				AA0000000000000000000109 /* WondL10n.swift in Sources */,
 				AA0000000000000000000122 /* CaptureStoreSupport.swift in Sources */,
 				AA0000000000000000000112 /* SyncService.swift in Sources */,
 				AA0000000000000000000114 /* WatchTransferService.swift in Sources */,
@@ -302,6 +323,29 @@
 			targetProxy = AA0000000000000000000604 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		AA0000000000000000000226 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				AA0000000000000000000227 /* zh-Hans */,
+				AA0000000000000000000228 /* ja */,
+				AA0000000000000000000229 /* ko */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+		AA0000000000000000000230 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				AA0000000000000000000231 /* zh-Hans */,
+				AA0000000000000000000232 /* ja */,
+				AA0000000000000000000233 /* ko */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
 		AA0000000000000000001001 /* Debug */ = {

@@ -1,0 +1,3 @@
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "Wond 可以在后台录音继续进行时持续附加附近地点名称和地址。";
+"NSLocationWhenInUseUsageDescription" = "开启位置记录时，Wond 会把附近地点名称和地址附加到采集内容中。";
+"NSMicrophoneUsageDescription" = "Wond 会录制你明确开始的音频片段，并保存在你的设备上，直到你导出或删除。";

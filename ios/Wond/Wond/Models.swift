@@ -11,17 +11,17 @@ enum CaptureState: String, Codable {
     var title: String {
         switch self {
         case .idle:
-            return "Stopped"
+            return WondL10n.t("Stopped")
         case .recording:
-            return "Recording"
+            return WondL10n.t("Recording")
         case .paused:
-            return "Paused"
+            return WondL10n.t("Paused")
         case .interrupted:
-            return "Interrupted"
+            return WondL10n.t("Interrupted")
         case .permissionNeeded:
-            return "Permission Needed"
+            return WondL10n.t("Permission Needed")
         case .failed:
-            return "Error"
+            return WondL10n.t("Error")
         }
     }
 }
@@ -36,11 +36,11 @@ enum AudioQuality: String, Codable, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .speech:
-            return "Speech"
+            return WondL10n.t("Speech")
         case .balanced:
-            return "Balanced"
+            return WondL10n.t("Balanced")
         case .high:
-            return "High"
+            return WondL10n.t("High")
         }
     }
 
@@ -78,13 +78,13 @@ enum LocationMode: String, Codable, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .off:
-            return "Off"
+            return WondL10n.t("Off")
         case .significantChange:
-            return "Significant Change"
+            return WondL10n.t("Significant Change")
         case .periodic:
-            return "Periodic"
+            return WondL10n.t("Periodic")
         case .continuous:
-            return "Continuous"
+            return WondL10n.t("Continuous")
         }
     }
 }
@@ -101,15 +101,15 @@ enum QuickTagKind: String, Codable, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .important:
-            return "Important"
+            return WondL10n.t("Important")
         case .todo:
-            return "To Do"
+            return WondL10n.t("To Do")
         case .idea:
-            return "Idea"
+            return WondL10n.t("Idea")
         case .meeting:
-            return "Meeting"
+            return WondL10n.t("Meeting")
         case .ignore:
-            return "Ignore"
+            return WondL10n.t("Ignore")
         }
     }
 
@@ -131,15 +131,15 @@ enum QuickTagKind: String, Codable, CaseIterable, Identifiable {
     var defaultNote: String {
         switch self {
         case .important:
-            return "Marked important on mobile"
+            return WondL10n.t("Marked important on mobile")
         case .todo:
-            return "Marked as follow-up on mobile"
+            return WondL10n.t("Marked as follow-up on mobile")
         case .idea:
-            return "Marked as an idea on mobile"
+            return WondL10n.t("Marked as an idea on mobile")
         case .meeting:
-            return "Marked as meeting context on mobile"
+            return WondL10n.t("Marked as meeting context on mobile")
         case .ignore:
-            return "Marked to ignore in summaries"
+            return WondL10n.t("Marked to ignore in summaries")
         }
     }
 }
@@ -168,19 +168,19 @@ enum QuietWeekday: Int, Codable, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .monday:
-            return "Monday"
+            return WondL10n.t("Monday")
         case .tuesday:
-            return "Tuesday"
+            return WondL10n.t("Tuesday")
         case .wednesday:
-            return "Wednesday"
+            return WondL10n.t("Wednesday")
         case .thursday:
-            return "Thursday"
+            return WondL10n.t("Thursday")
         case .friday:
-            return "Friday"
+            return WondL10n.t("Friday")
         case .saturday:
-            return "Saturday"
+            return WondL10n.t("Saturday")
         case .sunday:
-            return "Sunday"
+            return WondL10n.t("Sunday")
         }
     }
 }
@@ -347,7 +347,7 @@ struct LocationPoint: Identifiable, Codable, Equatable {
     var country: String?
 
     var label: String {
-        address ?? placeName ?? "Address pending"
+        address ?? placeName ?? WondL10n.t("Address pending")
     }
 
     var coordinateLabel: String {
