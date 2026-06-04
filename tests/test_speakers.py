@@ -8,6 +8,7 @@ from unittest.mock import patch
 from wond.speaker_identity import best_existing_speaker_match
 from wond.speakers import (
     auto_organize_speakers,
+    best_sample_segment,
     collapse_vad_chunk_speakers,
     clip_bounds,
     detach_speaker_sample,
@@ -22,6 +23,10 @@ from wond.speakers import (
     resolve_speaker_match_decision,
     reset_and_auto_group_speaker_samples,
     revive_hidden_speakers,
+    split_speaker_sample,
+    speaker_sample_clip_plan,
+    speaker_sample_plans_for_segments,
+    speaker_sample_seconds,
     speaker_confidence_summary,
     speaker_profile_payload,
 )
@@ -213,7 +218,7 @@ class SpeakerProcessingTests(unittest.TestCase):
 
     def test_unlabeled_speech_segments_record_explicit_status(self):
         settings = SimpleNamespace(
-            speaker_recognition={"enabled": True},
+            speaker_recognition={"enabled": True, "sample_unlabeled_speech": False},
             speaker_sample_dir=Path("/tmp/speaker_samples"),
         )
         store = SimpleNamespace()
@@ -340,6 +345,82 @@ class SpeakerProcessingTests(unittest.TestCase):
             self.assertIn(f"speaker-{new_id:06d}", detached["sample_path"])
             self.assertFalse(sample_file.exists())
             self.assertTrue(Path(detached["sample_path"]).exists())
+
+    def test_split_speaker_sample_creates_child_samples_and_archives_parent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = SimpleNamespace(
+                speaker_recognition={"sample_min_seconds": 0.5},
+                audio_preprocessing={"enabled": True, "speaker_samples_enabled": True},
+                speaker_sample_dir=root / "speaker_samples",
+            )
+            store = Store(root / "test.sqlite3")
+
+            def fake_extract(_settings, _source, output, start, end):
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_bytes(f"{start}-{end}".encode())
+                return {
+                    "status": "ok",
+                    "error": None,
+                    "sample_path": str(output),
+                    "audio_preprocessing": {"status": "enhanced"},
+                    "quality": {"ok": True, "duration_seconds": end - start},
+                }
+
+            try:
+                speaker = store.ensure_speaker_for_alias("obs:1:s1", default_name="Speaker 1", label="Speaker 1")
+                speaker_id = int(speaker["id"])
+                sample_dir = root / "speaker_samples" / f"speaker-{speaker_id:06d}"
+                sample_dir.mkdir(parents=True)
+                sample_file = sample_dir / "mixed.m4a"
+                sample_file.write_bytes(b"mixed audio")
+                sample = store.add_speaker_sample(
+                    speaker_id=speaker_id,
+                    observation_id=None,
+                    source_key="mixed-sample",
+                    media_path=None,
+                    sample_path=str(sample_file),
+                    start_seconds=10.0,
+                    end_seconds=16.0,
+                    transcript="first speaker then second speaker",
+                    metadata={"status": "ok"},
+                )
+                store.add_speaker_embedding(
+                    speaker_id=speaker_id,
+                    sample_id=int(sample["id"]),
+                    model="speechbrain_ecapa:speechbrain/spkrec-ecapa-voxceleb",
+                    vector=[0.1, 0.2],
+                    metadata={},
+                )
+
+                with (
+                    patch("wond.speakers.extract_quality_checked_sample_clip", side_effect=fake_extract),
+                    patch("wond.speakers.speaker_embedding", side_effect=[[1.0, 0.0], [0.0, 1.0]]),
+                ):
+                    result = split_speaker_sample(settings, store, sample_id=int(sample["id"]), cut_points=[3.0])
+                parent = store.get_speaker_sample(int(sample["id"]))
+                parent_metadata = json.loads(parent["metadata"])
+                children = [store.get_speaker_sample(child_id) for child_id in result.child_sample_ids]
+                child_metadatas = [json.loads(child["metadata"]) for child in children]
+                parent_embeddings = store.conn.execute(
+                    "SELECT * FROM speaker_embeddings WHERE sample_id = ?",
+                    (int(sample["id"]),),
+                ).fetchall()
+                child_speaker_ids = {int(child["speaker_id"]) for child in children}
+                child_files_exist = all(Path(child["sample_path"]).exists() for child in children)
+            finally:
+                store.close()
+
+        self.assertFalse(result.failed)
+        self.assertEqual(len(result.child_sample_ids), 2)
+        self.assertEqual(len(child_speaker_ids), 2)
+        self.assertEqual(parent_metadata["sample_role"], "mixed_parent_archived")
+        self.assertEqual(parent_metadata["manual_split_child_sample_ids"], result.child_sample_ids)
+        self.assertEqual(parent_embeddings, [])
+        self.assertEqual([float(child["start_seconds"]) for child in children], [10.0, 13.0])
+        self.assertEqual([float(child["end_seconds"]) for child in children], [13.0, 16.0])
+        self.assertTrue(child_files_exist)
+        self.assertEqual({metadata["sample_role"] for metadata in child_metadatas}, {"manual_split_child"})
 
     def test_refresh_speaker_sample_confidences_updates_sample_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -920,6 +1001,103 @@ class SpeakerProcessingTests(unittest.TestCase):
         self.assertNotEqual(named_metadata.get("speaker_review_status"), "low_similarity_hidden")
         self.assertEqual(matches[0]["status"], "auto_merged_pending_review")
 
+    def test_auto_organize_uses_merge_budget_across_disjoint_pairs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = SimpleNamespace(
+                speaker_recognition={"auto_merge_threshold": 0.9},
+                speaker_sample_dir=root / "speaker_samples",
+            )
+            store = Store(root / "test.sqlite3")
+            try:
+                vectors = [
+                    ("a1", [1.0, 0.0, 0.0]),
+                    ("a2", [0.999, 0.001, 0.0]),
+                    ("a3", [0.998, 0.002, 0.0]),
+                    ("b1", [0.0, 1.0, 0.0]),
+                    ("b2", [0.001, 0.999, 0.0]),
+                ]
+                for label, vector in vectors:
+                    speaker = store.ensure_speaker_for_alias(f"obs:1:{label}", default_name=label, label=label)
+                    speaker_id = int(speaker["id"])
+                    sample = store.add_speaker_sample(
+                        speaker_id=speaker_id,
+                        observation_id=None,
+                        source_key=f"sample-{label}",
+                        media_path=None,
+                        sample_path=None,
+                        start_seconds=0.0,
+                        end_seconds=1.0,
+                        transcript=label,
+                        metadata={},
+                    )
+                    store.add_speaker_embedding(
+                        speaker_id=speaker_id,
+                        sample_id=int(sample["id"]),
+                        model="speechbrain_ecapa:speechbrain/spkrec-ecapa-voxceleb",
+                        vector=vector,
+                        metadata={},
+                    )
+
+                result = auto_organize_speakers(settings, store, threshold=0.9, max_merges=2)
+                sample_counts = sorted(int(row["sample_count"] or 0) for row in store.list_speakers())
+            finally:
+                store.close()
+
+        self.assertEqual(result.merged_speakers, 2)
+        self.assertEqual(sample_counts, [1, 2, 2])
+
+    def test_auto_organize_runs_cascading_merge_rounds_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = SimpleNamespace(
+                speaker_recognition={"auto_merge_threshold": 0.96},
+                speaker_sample_dir=root / "speaker_samples",
+            )
+            store = Store(root / "test.sqlite3")
+            try:
+                vectors = [
+                    ("a1", [1.0, 0.0]),
+                    ("a2", [0.9848, 0.1736]),
+                    ("a3", [0.9397, 0.3420]),
+                ]
+                for label, vector in vectors:
+                    speaker = store.ensure_speaker_for_alias(f"obs:1:{label}", default_name=label, label=label)
+                    speaker_id = int(speaker["id"])
+                    sample = store.add_speaker_sample(
+                        speaker_id=speaker_id,
+                        observation_id=None,
+                        source_key=f"sample-{label}",
+                        media_path=None,
+                        sample_path=None,
+                        start_seconds=0.0,
+                        end_seconds=1.0,
+                        transcript=label,
+                        metadata={},
+                    )
+                    store.add_speaker_embedding(
+                        speaker_id=speaker_id,
+                        sample_id=int(sample["id"]),
+                        model="speechbrain_ecapa:speechbrain/spkrec-ecapa-voxceleb",
+                        vector=vector,
+                        metadata={},
+                    )
+
+                result = auto_organize_speakers(
+                    settings,
+                    store,
+                    threshold=0.96,
+                    max_merges=10,
+                    hide_unmatched=False,
+                )
+                sample_counts = sorted(int(row["sample_count"] or 0) for row in store.list_speakers())
+            finally:
+                store.close()
+
+        self.assertEqual(result.merge_rounds, 2)
+        self.assertEqual(result.merged_speakers, 2)
+        self.assertEqual(sample_counts, [3])
+
     def test_mark_speaker_review_status_confirms_and_unhides(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = Store(Path(tmp) / "test.sqlite3")
@@ -1158,7 +1336,7 @@ class SpeakerProcessingTests(unittest.TestCase):
                 store.close()
 
         self.assertEqual(len(speakers), 2)
-        self.assertEqual(len(samples), 2)
+        self.assertGreaterEqual(len(samples), 2)
         self.assertEqual({item["local_label"] for item in speakers}, {"Speaker 1"})
         self.assertEqual({item["speaker_scope"] for item in speakers}, {"vad_chunk_001", "vad_chunk_002"})
         self.assertNotIn("Speaker 1", names)
@@ -1228,7 +1406,12 @@ class SpeakerProcessingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             settings = SimpleNamespace(
-                speaker_recognition={"enabled": True, "sample_seconds": 8, "sample_min_seconds": 0.5},
+                speaker_recognition={
+                    "enabled": True,
+                    "sample_seconds": 8,
+                    "sample_min_seconds": 0.5,
+                    "samples_per_speaker_per_observation": 1,
+                },
                 speaker_sample_dir=root / "speaker_samples",
             )
             store = Store(root / "context.sqlite3")
@@ -1280,6 +1463,317 @@ class SpeakerProcessingTests(unittest.TestCase):
         self.assertEqual(sample_metadata["source_segment_start"], 0.0)
         self.assertEqual(sample_metadata["source_segment_end"], 45.0)
         self.assertEqual(sample_metadata["clip_strategy"]["long_segment_anchor"], "start")
+
+    def test_quality_rejected_sample_is_not_added_to_library(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "audio.m4a"
+            source.write_bytes(b"audio")
+            settings = SimpleNamespace(
+                speaker_recognition={
+                    "enabled": True,
+                    "sample_seconds": 3,
+                    "sample_min_seconds": 0.5,
+                    "samples_per_speaker_per_observation": 1,
+                },
+                audio_preprocessing={"enabled": True, "speaker_samples_enabled": True},
+                speaker_sample_dir=root / "speaker_samples",
+            )
+            store = Store(root / "context.sqlite3")
+
+            def fake_clip(_settings, _source, output, _start, _end):
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_bytes(b"bad sample")
+                return True, {"status": "enhanced"}
+
+            try:
+                store.upsert_observations(
+                    [
+                        Observation(
+                            source="mobile",
+                            kind="audio_segment",
+                            source_key="audio-noisy-sample",
+                            observed_at="2026-06-01T10:00:00+09:00",
+                            title="Audio segment",
+                            body="transcript",
+                            metadata={},
+                        )
+                    ]
+                )
+                observation_id = int(
+                    store.conn.execute(
+                        "SELECT id FROM observations WHERE source_key = ?",
+                        ("audio-noisy-sample",),
+                    ).fetchone()["id"]
+                )
+                metadata = {
+                    "audio_analysis": {
+                        "audio_timeline": {
+                            "duration_seconds": 4.0,
+                            "speech_segments": [
+                                {"start": 0.0, "end": 4.0, "speaker": "Speaker 1", "text": "noisy speech sample"},
+                            ],
+                        }
+                    }
+                }
+
+                with (
+                    patch("wond.speakers.create_enhanced_sample_clip", side_effect=fake_clip),
+                    patch(
+                        "wond.speakers.audio_quality",
+                        return_value={"ok": False, "reason": "noisy_background"},
+                    ),
+                ):
+                    result = process_speakers_for_observation(
+                        settings,
+                        store,
+                        observation_id=observation_id,
+                        source_key="audio-noisy-sample",
+                        media_path=source,
+                        metadata=metadata,
+                    )
+                samples = store.list_speaker_samples(None)
+                speakers = store.list_speakers()
+            finally:
+                store.close()
+
+        self.assertEqual(samples, [])
+        self.assertEqual(speakers, [])
+        self.assertEqual(result["audio_analysis"]["speaker_processing"]["status"], "ok")
+
+    def test_noisy_long_sample_retries_clean_shorter_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "audio.m4a"
+            source.write_bytes(b"audio")
+            settings = SimpleNamespace(
+                speaker_recognition={
+                    "enabled": True,
+                    "sample_seconds": 16,
+                    "sample_min_seconds": 0.5,
+                    "sample_fine_window_seconds": 3,
+                    "sample_fine_stride_seconds": 2.5,
+                    "samples_per_speaker_per_observation": 1,
+                },
+                audio_preprocessing={"enabled": True, "speaker_samples_enabled": True},
+                speaker_sample_dir=root / "speaker_samples",
+            )
+            store = Store(root / "context.sqlite3")
+
+            def fake_clip(_settings, _source, output, _start, _end):
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_bytes(b"sample")
+                return True, {"status": "enhanced"}
+
+            def fake_quality(_settings, path, *, min_seconds):
+                name = Path(path).name
+                if name.endswith("-0.00-12.00.m4a"):
+                    return {"ok": False, "reason": "noisy_background"}
+                return {"ok": True, "reason": None, "duration_seconds": 8.0}
+
+            try:
+                store.upsert_observations(
+                    [
+                        Observation(
+                            source="mobile",
+                            kind="audio_segment",
+                            source_key="audio-noisy-long-sample",
+                            observed_at="2026-06-01T10:00:00+09:00",
+                            title="Audio segment",
+                            body="transcript",
+                            metadata={},
+                        )
+                    ]
+                )
+                observation_id = int(
+                    store.conn.execute(
+                        "SELECT id FROM observations WHERE source_key = ?",
+                        ("audio-noisy-long-sample",),
+                    ).fetchone()["id"]
+                )
+                metadata = {
+                    "audio_analysis": {
+                        "audio_timeline": {
+                            "duration_seconds": 12.0,
+                            "speech_segments": [
+                                {
+                                    "start": 0.0,
+                                    "end": 12.0,
+                                    "speaker": "Speaker 1",
+                                    "text": "a long single speaker turn that has a clean subsection",
+                                },
+                            ],
+                        }
+                    }
+                }
+
+                with (
+                    patch("wond.speakers.create_enhanced_sample_clip", side_effect=fake_clip),
+                    patch("wond.speakers.audio_quality", side_effect=fake_quality),
+                    patch(
+                        "wond.speakers.update_speaker_identity_for_sample",
+                        side_effect=lambda _settings, _store, *, speaker_id, sample_id, sample_path: SimpleNamespace(
+                            speaker_id=speaker_id,
+                            status="new_identity",
+                            score=None,
+                            target_speaker_id=None,
+                            confidence=None,
+                            message=None,
+                        ),
+                    ),
+                ):
+                    process_speakers_for_observation(
+                        settings,
+                        store,
+                        observation_id=observation_id,
+                        source_key="audio-noisy-long-sample",
+                        media_path=source,
+                        metadata=metadata,
+                    )
+                samples = store.list_speaker_samples(None)
+                sample_metadata = json.loads(samples[0]["metadata"])
+            finally:
+                store.close()
+
+        self.assertEqual(len(samples), 1)
+        self.assertEqual(float(samples[0]["start_seconds"]), 0.0)
+        self.assertEqual(float(samples[0]["end_seconds"]), 8.0)
+        self.assertEqual(sample_metadata["quality_recovery"]["status"], "recovered_with_shorter_window")
+        self.assertTrue(sample_metadata["clip_strategy"]["quality_recovery_window"])
+
+    def test_long_speaker_segment_creates_multiple_window_samples(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = SimpleNamespace(
+                speaker_recognition={
+                    "enabled": True,
+                    "sample_seconds": 16,
+                    "sample_min_seconds": 0.5,
+                    "sample_boundary_guard_seconds": 0.08,
+                    "sample_stride_seconds": 16,
+                    "samples_per_speaker_per_observation": 4,
+                },
+                speaker_sample_dir=root / "speaker_samples",
+            )
+            store = Store(root / "context.sqlite3")
+            try:
+                store.upsert_observations(
+                    [
+                        Observation(
+                            source="mobile",
+                            kind="audio_segment",
+                            source_key="audio-windowed-samples",
+                            observed_at="2026-06-01T10:00:00+09:00",
+                            title="Audio segment",
+                            body="transcript",
+                            metadata={},
+                        )
+                    ]
+                )
+                observation_id = int(
+                    store.conn.execute(
+                        "SELECT id FROM observations WHERE source_key = ?",
+                        ("audio-windowed-samples",),
+                    ).fetchone()["id"]
+                )
+                metadata = {
+                    "audio_analysis": {
+                        "audio_timeline": {
+                            "duration_seconds": 50.0,
+                            "speech_segments": [
+                                {
+                                    "start": 0.0,
+                                    "end": 50.0,
+                                    "speaker": "Speaker 1",
+                                    "text": " ".join(f"word{i:02d}" for i in range(80)),
+                                },
+                            ],
+                        }
+                    }
+                }
+
+                result = process_speakers_for_observation(
+                    settings,
+                    store,
+                    observation_id=observation_id,
+                    source_key="audio-windowed-samples",
+                    media_path=None,
+                    metadata=metadata,
+                )
+                samples = sorted(store.list_speaker_samples(None), key=lambda row: float(row["start_seconds"]))
+                sample_metadatas = [json.loads(sample["metadata"]) for sample in samples]
+            finally:
+                store.close()
+
+        self.assertGreaterEqual(len(samples), 3)
+        self.assertEqual(result["audio_analysis"]["speakers"][0]["sample_count"], len(samples))
+        self.assertEqual([item["sample_window_index"] for item in sample_metadatas], list(range(1, len(samples) + 1)))
+        self.assertEqual(float(samples[0]["start_seconds"]), 0.08)
+        self.assertLessEqual(max(float(sample["end_seconds"]) for sample in samples), 50.0)
+        self.assertEqual(len({sample["source_key"] for sample in samples}), len(samples))
+
+    def test_unlabeled_speech_can_create_window_samples(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = SimpleNamespace(
+                speaker_recognition={
+                    "enabled": True,
+                    "sample_seconds": 16,
+                    "sample_min_seconds": 0.5,
+                    "sample_unlabeled_speech": True,
+                },
+                speaker_sample_dir=root / "speaker_samples",
+            )
+            store = Store(root / "context.sqlite3")
+            try:
+                store.upsert_observations(
+                    [
+                        Observation(
+                            source="mobile",
+                            kind="audio_segment",
+                            source_key="audio-unlabeled-speech",
+                            observed_at="2026-06-01T10:00:00+09:00",
+                            title="Audio segment",
+                            body="transcript",
+                            metadata={},
+                        )
+                    ]
+                )
+                observation_id = int(
+                    store.conn.execute(
+                        "SELECT id FROM observations WHERE source_key = ?",
+                        ("audio-unlabeled-speech",),
+                    ).fetchone()["id"]
+                )
+                metadata = {
+                    "audio_analysis": {
+                        "audio_timeline": {
+                            "duration_seconds": 40.0,
+                            "speech_segments": [
+                                {"start": 0.0, "end": 40.0, "speaker": None, "text": "unlabeled but spoken text"},
+                            ],
+                        }
+                    }
+                }
+
+                result = process_speakers_for_observation(
+                    settings,
+                    store,
+                    observation_id=observation_id,
+                    source_key="audio-unlabeled-speech",
+                    media_path=None,
+                    metadata=metadata,
+                )
+                samples = store.list_speaker_samples(None)
+                sample_metadata = json.loads(samples[0]["metadata"])
+            finally:
+                store.close()
+
+        self.assertEqual(result["audio_analysis"]["speaker_processing"]["status"], "ok")
+        self.assertEqual(result["audio_analysis"]["speaker_processing"]["unlabeled_speech_segments"], 1)
+        self.assertEqual(result["audio_analysis"]["speakers"][0]["local_label"], "Unlabeled speech")
+        self.assertGreaterEqual(len(samples), 2)
+        self.assertEqual(sample_metadata["local_label"], "Unlabeled speech")
 
     def test_repair_speaker_sample_text_updates_existing_full_segment_text(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1342,7 +1836,387 @@ class SpeakerProcessingTests(unittest.TestCase):
         self.assertLess(len(sample["transcript"]), len(long_text))
         self.assertTrue(sample["transcript"].endswith("..."))
 
-    def test_repair_speaker_sample_clips_recuts_long_segment_to_start_window(self):
+    def test_best_sample_segment_prefers_clean_single_turn_over_mixed_long_segment(self):
+        mixed = {
+            "start": 0.0,
+            "end": 12.0,
+            "speaker": "Speaker 1",
+            "text": 'Where is the guest? Ah, there? He said: "I am fine." You asked again?',
+        }
+        clean = {
+            "start": 20.0,
+            "end": 23.0,
+            "speaker": "Speaker 1",
+            "text": "The schedule is ready for tomorrow morning.",
+        }
+
+        self.assertIs(best_sample_segment([mixed, clean]), clean)
+
+    def test_speaker_sample_seconds_is_capped_at_sixteen_seconds(self):
+        settings = SimpleNamespace(speaker_recognition={"sample_seconds": 120})
+
+        self.assertEqual(speaker_sample_seconds(settings), 16.0)
+
+    def test_speaker_sample_plans_fine_cut_mixed_speaker_risk(self):
+        settings = SimpleNamespace(
+            speaker_recognition={
+                "sample_seconds": 16,
+                "sample_min_seconds": 0.5,
+                "sample_boundary_guard_seconds": 0.08,
+                "sample_fine_window_seconds": 3,
+                "sample_fine_stride_seconds": 3,
+                "sample_long_segment_anchor": "start",
+                "samples_per_speaker_per_observation": 4,
+            }
+        )
+        mixed = {
+            "start": 0.0,
+            "end": 12.0,
+            "speaker": "Speaker 1",
+            "text": 'Where is the guest? Ah, there? He said: "I am fine." You asked again?',
+        }
+
+        plans = speaker_sample_plans_for_segments(settings, [mixed], 30.0)
+
+        self.assertGreater(len(plans), 1)
+        self.assertTrue(all(plan[0] is mixed for plan in plans))
+        self.assertTrue(all((clip[1] - clip[0]) <= 3.01 for _, clip in plans))
+
+    def test_sample_plans_spread_across_segments_when_limited(self):
+        settings = SimpleNamespace(
+            speaker_recognition={
+                "sample_seconds": 16,
+                "sample_min_seconds": 0.5,
+                "samples_per_speaker_per_observation": 3,
+            }
+        )
+        segments = [
+            {
+                "start": index * 10.0,
+                "end": index * 10.0 + 2.0,
+                "speaker": "Speaker 1",
+                "text": f"segment {index}",
+            }
+            for index in range(6)
+        ]
+
+        plans = speaker_sample_plans_for_segments(settings, segments, 80.0)
+
+        self.assertEqual([plan[0]["text"] for plan in plans], ["segment 0", "segment 2", "segment 5"])
+
+    def test_sample_plans_cover_segments_before_extra_windows(self):
+        settings = SimpleNamespace(
+            speaker_recognition={
+                "sample_seconds": 3,
+                "sample_min_seconds": 0.5,
+                "sample_stride_seconds": 3,
+                "samples_per_speaker_per_observation": 3,
+            }
+        )
+        first = {
+            "start": 0.0,
+            "end": 12.0,
+            "speaker": "Speaker 1",
+            "text": " ".join(f"first{i}" for i in range(30)),
+        }
+        second = {
+            "start": 20.0,
+            "end": 32.0,
+            "speaker": "Speaker 1",
+            "text": " ".join(f"second{i}" for i in range(30)),
+        }
+
+        plans = speaker_sample_plans_for_segments(settings, [first, second], 40.0)
+
+        self.assertEqual(plans[0][0], first)
+        self.assertEqual(plans[1][0], second)
+        self.assertEqual(plans[2][0], first)
+
+    def test_speaker_samples_use_diarization_segments_before_broad_transcript_segments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = SimpleNamespace(
+                speaker_recognition={
+                    "enabled": True,
+                    "sample_seconds": 16,
+                    "sample_min_seconds": 0.5,
+                    "sample_boundary_guard_seconds": 0.08,
+                    "sample_fine_window_seconds": 3,
+                    "sample_fine_stride_seconds": 3,
+                    "samples_per_speaker_per_observation": 4,
+                },
+                speaker_sample_dir=root / "speaker_samples",
+            )
+            store = Store(root / "context.sqlite3")
+            try:
+                store.upsert_observations(
+                    [
+                        Observation(
+                            source="mobile",
+                            kind="audio_segment",
+                            source_key="audio-diarization-sample-source",
+                            observed_at="2026-06-01T10:00:00+09:00",
+                            title="Audio segment",
+                            body="transcript",
+                            metadata={},
+                        )
+                    ]
+                )
+                observation_id = int(
+                    store.conn.execute(
+                        "SELECT id FROM observations WHERE source_key = ?",
+                        ("audio-diarization-sample-source",),
+                    ).fetchone()["id"]
+                )
+                metadata = {
+                    "audio_analysis": {
+                        "audio_timeline": {
+                            "duration_seconds": 20.0,
+                            "speech_segments": [
+                                {
+                                    "start": 0.0,
+                                    "end": 20.0,
+                                    "speaker": "Speaker 1",
+                                    "text": "broad transcript segment that should not drive speaker samples",
+                                },
+                            ],
+                            "speaker_diarization_segments": [
+                                {
+                                    "start": 0.0,
+                                    "end": 1.2,
+                                    "speaker": "Speaker 1",
+                                    "speaker_scope": "turn_001",
+                                    "text": "short first voice",
+                                },
+                                {
+                                    "start": 1.35,
+                                    "end": 2.1,
+                                    "speaker": "Speaker 2",
+                                    "speaker_scope": "turn_002",
+                                    "text": "short second voice",
+                                },
+                            ],
+                        }
+                    }
+                }
+
+                result = process_speakers_for_observation(
+                    settings,
+                    store,
+                    observation_id=observation_id,
+                    source_key="audio-diarization-sample-source",
+                    media_path=None,
+                    metadata=metadata,
+                )
+                samples = sorted(store.list_speaker_samples(None), key=lambda row: float(row["start_seconds"]))
+                sample_metadatas = [json.loads(sample["metadata"]) for sample in samples]
+            finally:
+                store.close()
+
+        self.assertEqual(len(samples), 2)
+        self.assertEqual(result["audio_analysis"]["speaker_processing"]["sample_segment_source"], "speaker_diarization_segments")
+        self.assertEqual([float(sample["start_seconds"]) for sample in samples], [0.08, 1.43])
+        self.assertEqual([round(float(sample["end_seconds"]), 2) for sample in samples], [1.12, 2.02])
+        self.assertEqual({metadata["speaker_sample_source"] for metadata in sample_metadatas}, {"speaker_diarization_segments"})
+        self.assertFalse(any(metadata["sample_fine_window"] for metadata in sample_metadatas))
+
+    def test_repair_speaker_sample_clips_preserves_current_window_even_with_clean_alternative(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "audio.m4a"
+            source.write_bytes(b"audio")
+            settings = SimpleNamespace(
+                speaker_recognition={
+                    "embedding_backend": "speechbrain_ecapa",
+                    "embedding_model": "test-model",
+                    "sample_seconds": 8,
+                    "sample_min_seconds": 0.5,
+                    "sample_boundary_guard_seconds": 0.08,
+                    "sample_long_segment_anchor": "start",
+                    "review_min_samples": 1,
+                    "review_min_observations": 1,
+                    "review_min_days": 1,
+                    "review_min_confidence": 0.0,
+                },
+                audio_preprocessing={"enabled": True, "speaker_samples_enabled": True},
+                speaker_sample_dir=root / "speaker_samples",
+            )
+            store = Store(root / "context.sqlite3")
+
+            def fake_enhanced(_settings, _source, output, _start, _end):
+                output.parent.mkdir(parents=True, exist_ok=True)
+                output.write_bytes(b"sample")
+                return True, {"status": "enhanced"}
+
+            try:
+                store.upsert_observations(
+                    [
+                        Observation(
+                            source="mobile",
+                            kind="audio_segment",
+                            source_key="audio-repair-mixed-clips",
+                            observed_at="2026-06-01T10:00:00+09:00",
+                            title="Audio segment",
+                            body="transcript",
+                            metadata={
+                                "resolved_media_path": str(source),
+                                "audio_analysis": {
+                                    "audio_timeline": {
+                                        "duration_seconds": 45.0,
+                                        "speech_segments": [
+                                            {
+                                                "start": 0.0,
+                                                "end": 12.0,
+                                                "speaker": "Speaker 1",
+                                                "speaker_scope": "vad_chunk_001",
+                                                "text": 'Where is the guest? Ah, there? He said: "I am fine." You asked again?',
+                                            },
+                                            {
+                                                "start": 20.0,
+                                                "end": 23.0,
+                                                "speaker": "Speaker 1",
+                                                "speaker_scope": "vad_chunk_001",
+                                                "text": "The schedule is ready for tomorrow morning.",
+                                            },
+                                        ],
+                                    }
+                                },
+                            },
+                        )
+                    ]
+                )
+                observation_id = int(
+                    store.conn.execute(
+                        "SELECT id FROM observations WHERE source_key = ?",
+                        ("audio-repair-mixed-clips",),
+                    ).fetchone()["id"]
+                )
+                speaker = store.ensure_speaker_for_alias(
+                    f"observation:{observation_id}:vad_chunk_001:Speaker 1",
+                    default_name="Speaker 1",
+                    label="Speaker 1",
+                    metadata={"speaker_scope": "vad_chunk_001"},
+                )
+                sample = store.add_speaker_sample(
+                    speaker_id=int(speaker["id"]),
+                    observation_id=observation_id,
+                    source_key=f"observation:{observation_id}:vad_chunk_001:Speaker 1:sample:0.080:8.080",
+                    media_path=str(source),
+                    sample_path=str(root / "old.m4a"),
+                    start_seconds=0.08,
+                    end_seconds=8.08,
+                    transcript="mixed window",
+                    metadata={"local_label": "vad_chunk_001:Speaker 1"},
+                )
+                with (
+                    patch("wond.speakers.create_enhanced_sample_clip", side_effect=fake_enhanced),
+                    patch("wond.speakers.audio_quality", return_value={"ok": True, "duration_seconds": 2.84}),
+                    patch("wond.speakers.speaker_embedding", return_value=[1.0, 0.0]),
+                ):
+                    preview = repair_speaker_sample_clips(settings, store)
+                    applied = repair_speaker_sample_clips(settings, store, apply=True)
+                updated = store.get_speaker_sample(int(sample["id"]))
+                updated_metadata = json.loads(updated["metadata"])
+            finally:
+                store.close()
+
+        self.assertEqual(preview.repaired, 1)
+        self.assertEqual(applied.repaired, 1)
+        self.assertEqual(applied.reembedded, 0)
+        self.assertAlmostEqual(float(updated["start_seconds"]), 0.08, places=2)
+        self.assertAlmostEqual(float(updated["end_seconds"]), 8.08, places=2)
+        self.assertEqual(updated_metadata["source_segment_start"], 0.0)
+        self.assertTrue(updated_metadata["sample_segment_mixed_speaker_risk"])
+
+    def test_sample_clip_plan_keeps_current_window_when_only_other_candidates_are_mixed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = SimpleNamespace(
+                speaker_recognition={
+                    "sample_seconds": 8,
+                    "sample_min_seconds": 0.5,
+                    "sample_boundary_guard_seconds": 0.08,
+                    "sample_long_segment_anchor": "start",
+                },
+                speaker_sample_dir=root / "speaker_samples",
+            )
+            store = Store(root / "context.sqlite3")
+            try:
+                store.upsert_observations(
+                    [
+                        Observation(
+                            source="mobile",
+                            kind="audio_segment",
+                            source_key="audio-risky-alternatives",
+                            observed_at="2026-06-01T10:00:00+09:00",
+                            title="Audio segment",
+                            body="transcript",
+                            metadata={
+                                "audio_analysis": {
+                                    "audio_timeline": {
+                                        "duration_seconds": 90.0,
+                                        "speech_segments": [
+                                            {
+                                                "start": 0.0,
+                                                "end": 45.0,
+                                                "speaker": "Speaker 1",
+                                                "speaker_scope": "vad_chunk_001",
+                                                "text": 'Where now? There? He said: "I am fine." You asked again?',
+                                            },
+                                            {
+                                                "start": 45.0,
+                                                "end": 75.0,
+                                                "speaker": "Speaker 1",
+                                                "speaker_scope": "vad_chunk_001",
+                                                "text": 'What next? Which one? She said: "Use that." Then what?',
+                                            },
+                                        ],
+                                    }
+                                },
+                            },
+                        )
+                    ]
+                )
+                observation_id = int(
+                    store.conn.execute(
+                        "SELECT id FROM observations WHERE source_key = ?",
+                        ("audio-risky-alternatives",),
+                    ).fetchone()["id"]
+                )
+                speaker = store.ensure_speaker_for_alias(
+                    f"observation:{observation_id}:vad_chunk_001:Speaker 1",
+                    default_name="Speaker 1",
+                    label="Speaker 1",
+                    metadata={"speaker_scope": "vad_chunk_001"},
+                )
+                sample = store.add_speaker_sample(
+                    speaker_id=int(speaker["id"]),
+                    observation_id=observation_id,
+                    source_key=f"observation:{observation_id}:vad_chunk_001:Speaker 1:sample:0.080:8.080",
+                    media_path=None,
+                    sample_path=None,
+                    start_seconds=0.08,
+                    end_seconds=8.08,
+                    transcript="current risky window",
+                    metadata={"local_label": "vad_chunk_001:Speaker 1"},
+                )
+                row = store.conn.execute(
+                    """
+                    SELECT speaker_samples.*, observations.metadata AS observation_metadata
+                    FROM speaker_samples
+                    LEFT JOIN observations ON observations.id = speaker_samples.observation_id
+                    WHERE speaker_samples.id = ?
+                    """,
+                    (int(sample["id"]),),
+                ).fetchone()
+                plan = speaker_sample_clip_plan(settings, row)
+            finally:
+                store.close()
+
+        self.assertEqual(plan["clip"], (0.08, 8.08))
+        self.assertTrue(plan["sample_segment_mixed_speaker_risk"])
+
+    def test_repair_speaker_sample_clips_preserves_existing_window_in_long_segment(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root / "audio.m4a"
@@ -1431,13 +2305,14 @@ class SpeakerProcessingTests(unittest.TestCase):
 
         self.assertEqual(preview.repaired, 1)
         self.assertEqual(applied.repaired, 1)
-        self.assertEqual(applied.reembedded, 1)
-        self.assertEqual(float(updated["start_seconds"]), 0.08)
-        self.assertEqual(float(updated["end_seconds"]), 8.08)
-        self.assertEqual(updated["source_key"], f"observation:{observation_id}:Speaker 1:sample:0.080:8.080")
-        self.assertTrue(updated["transcript"].startswith("word00"))
+        self.assertEqual(applied.reembedded, 0)
+        self.assertEqual(float(updated["start_seconds"]), 18.5)
+        self.assertEqual(float(updated["end_seconds"]), 26.5)
+        self.assertEqual(updated["source_key"], f"observation:{observation_id}:Speaker 1:sample:18.500:26.500")
+        self.assertNotEqual(updated["transcript"], "middle words")
+        self.assertFalse(updated["transcript"].startswith("word00"))
         self.assertEqual(updated_metadata["sample_clip_repair"]["anchor"], "start")
-        self.assertEqual(len(embedding_rows), 1)
+        self.assertEqual(len(embedding_rows), 0)
 
     def test_clean_speaker_sample_uses_enhanced_audio_when_enabled(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -124,6 +124,14 @@ By default, Wond stores runtime data under `data/`:
 
 `config.json` is the real configuration for the current machine, while `config.example.json` is a template. Before committing or sharing configuration, check for tokens, email addresses, model paths, and local directories.
 
+Before publishing a release, run the read-only privacy audit:
+
+```bash
+python3 -m wond release-audit
+```
+
+Use `--json` for automation, `--no-history` for a fast current-tree scan, and `--fail-on-warn` when a CI job should block on warnings.
+
 ## Configuration Highlights
 
 Core fields:

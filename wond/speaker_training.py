@@ -13,27 +13,36 @@ CONFIDENCE_THRESHOLD = 0.68
 
 
 def speaker_training_payload(settings: Any, params: dict[str, str] | None = None) -> dict[str, Any]:
+    thresholds = speaker_training_thresholds(settings)
+    confidence_threshold = thresholds["candidate_threshold"]
     store = Store(settings.db_path)
     try:
         speakers = list(store.list_speakers())
         samples = list(store.list_speaker_samples(None))
         model = embedding_model_key(settings)
         embedding_count = count_embeddings(store, model=model)
-        sample_items = [training_sample_item(store, sample, model=model) for sample in samples]
-        speaker_items = [training_speaker_item(store, speaker, model=model) for speaker in speakers]
-        stages = training_stages(speaker_items, sample_items)
+        sample_items = [
+            training_sample_item(store, sample, model=model, confidence_threshold=confidence_threshold)
+            for sample in samples
+        ]
+        speaker_items = [
+            training_speaker_item(store, speaker, model=model, confidence_threshold=confidence_threshold)
+            for speaker in speakers
+        ]
+        stages = training_stages(speaker_items, sample_items, auto_merge_threshold=thresholds["auto_merge_threshold"])
         summary = training_summary(speaker_items, sample_items, embedding_count=embedding_count, stages=stages)
         return {
             "ok": True,
             "generated_at": now(settings.timezone).isoformat(timespec="seconds"),
             "model": {
                 "embedding_model": model,
-                "threshold": CONFIDENCE_THRESHOLD,
-                "auto_merge_threshold": float(settings.speaker_recognition.get("auto_merge_threshold", CONFIDENCE_THRESHOLD)),
-                "candidate_threshold": float(settings.speaker_recognition.get("candidate_threshold", CONFIDENCE_THRESHOLD)),
+                "threshold": confidence_threshold,
+                "auto_merge_threshold": thresholds["auto_merge_threshold"],
+                "candidate_threshold": confidence_threshold,
                 "review_min_samples": int(settings.speaker_recognition.get("review_min_samples", 5)),
                 "review_min_observations": int(settings.speaker_recognition.get("review_min_observations", 3)),
                 "review_min_days": int(settings.speaker_recognition.get("review_min_days", 2)),
+                "review_min_confidence": thresholds["review_min_confidence"],
             },
             "summary": summary,
             "stages": stages,
@@ -43,6 +52,24 @@ def speaker_training_payload(settings: Any, params: dict[str, str] | None = None
         }
     finally:
         store.close()
+
+
+def speaker_training_thresholds(settings: Any) -> dict[str, float]:
+    return {
+        "auto_merge_threshold": speaker_recognition_float(settings, "auto_merge_threshold", CONFIDENCE_THRESHOLD),
+        "candidate_threshold": speaker_recognition_float(settings, "candidate_threshold", CONFIDENCE_THRESHOLD),
+        "review_min_confidence": speaker_recognition_float(settings, "review_min_confidence", 0.90),
+    }
+
+
+def speaker_recognition_float(settings: Any, key: str, default: float) -> float:
+    try:
+        value = float(settings.speaker_recognition.get(key, default))
+    except (AttributeError, TypeError, ValueError):
+        return default
+    if value <= 0 or value > 1:
+        return default
+    return value
 
 
 def training_summary(
@@ -99,7 +126,12 @@ def training_summary(
     }
 
 
-def training_stages(speakers: list[dict[str, Any]], samples: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def training_stages(
+    speakers: list[dict[str, Any]],
+    samples: list[dict[str, Any]],
+    *,
+    auto_merge_threshold: float,
+) -> list[dict[str, Any]]:
     speaker_count = len(speakers)
     sample_count = len(samples)
     playable = sum(1 for row in samples if row["has_audio"])
@@ -144,8 +176,8 @@ def training_stages(speakers: list[dict[str, Any]], samples: list[dict[str, Any]
             "organize",
             "自动整理",
             "ready" if hidden or review_needed else "ok",
-            f"{len(review_needed)} review / {len(hidden)} hidden",
-            {"name": "speaker_auto_organize", "args": {"threshold": CONFIDENCE_THRESHOLD}, "label": "自动整理后复查"},
+            f"{len(review_needed)} review / {len(hidden)} hidden / threshold {auto_merge_threshold:.3f}",
+            {"name": "speaker_auto_organize", "args": {}, "label": "自动整理后复查"},
         ),
         stage(
             "review",
@@ -161,7 +193,7 @@ def stage(key: str, label: str, status: str, detail: str, action: dict[str, Any]
     return {"key": key, "label": label, "status": status, "detail": detail, "action": action}
 
 
-def training_speaker_item(store: Store, row: Any, *, model: str) -> dict[str, Any]:
+def training_speaker_item(store: Store, row: Any, *, model: str, confidence_threshold: float) -> dict[str, Any]:
     speaker_id = int(row["id"])
     stats = store.speaker_sample_evidence_stats(speaker_id)
     sample_count = int(stats["sample_count"] or 0)
@@ -178,14 +210,26 @@ def training_speaker_item(store: Store, row: Any, *, model: str) -> dict[str, An
         issues.append("missing_embedding")
     if confidence is None:
         issues.append("missing_confidence")
-    elif confidence < CONFIDENCE_THRESHOLD and review_status != "confirmed":
+    elif confidence < confidence_threshold and review_status != "confirmed":
         issues.append("low_confidence")
     if not any(sample_metadata(sample).get("representative_sample") for sample in samples) and sample_count:
         issues.append("missing_representative")
     if speaker_display_name_is_auto(row["display_name"]) and review_status != "confirmed":
         issues.append("auto_name")
-    state = speaker_training_state(row, sample_count=sample_count, embedding_count=embedding_count, confidence=confidence, issues=issues)
-    confidence_summary = speaker_confidence_summary(row, sample_count=sample_count, embedding_count=embedding_count)
+    state = speaker_training_state(
+        row,
+        sample_count=sample_count,
+        embedding_count=embedding_count,
+        confidence=confidence,
+        issues=issues,
+        confidence_threshold=confidence_threshold,
+    )
+    confidence_summary = speaker_confidence_summary(
+        row,
+        sample_count=sample_count,
+        embedding_count=embedding_count,
+        confidence_threshold=confidence_threshold,
+    )
     return {
         "id": speaker_id,
         "display_name": row["display_name"],
@@ -212,6 +256,7 @@ def speaker_training_state(
     embedding_count: int,
     confidence: float | None,
     issues: list[str],
+    confidence_threshold: float,
 ) -> str:
     review_status = speaker_review_status(row)
     identity_status = str(row["identity_status"] or "")
@@ -229,7 +274,7 @@ def speaker_training_state(
         return "missing_embedding"
     if confidence is None:
         return "needs_scoring"
-    if confidence < CONFIDENCE_THRESHOLD:
+    if confidence < confidence_threshold:
         return "low_confidence"
     if any(issue in issues for issue in ("single_sample", "missing_representative", "auto_name")):
         return "review_needed"
@@ -248,7 +293,7 @@ def speaker_recommended_action(state: str, speaker_id: int) -> dict[str, Any] | 
     return None
 
 
-def training_sample_item(store: Store, row: Any, *, model: str) -> dict[str, Any]:
+def training_sample_item(store: Store, row: Any, *, model: str, confidence_threshold: float) -> dict[str, Any]:
     metadata = sample_metadata(row)
     confidence = safe_float(metadata.get("sample_confidence"))
     sample_id = int(row["id"])
@@ -267,7 +312,7 @@ def training_sample_item(store: Store, row: Any, *, model: str) -> dict[str, Any
         issues.append("missing_embedding")
     if confidence is None:
         issues.append("missing_confidence")
-    elif confidence < CONFIDENCE_THRESHOLD:
+    elif confidence < confidence_threshold:
         issues.append("low_confidence")
     if metadata.get("status") not in {None, "ok", "overlap_separated_candidate"}:
         issues.append(str(metadata.get("status")))

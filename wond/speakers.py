@@ -33,6 +33,11 @@ NON_SPEECH_MARKERS = {
     "lyric",
 }
 
+DEFAULT_SPEAKER_CONFIDENCE_THRESHOLD = 0.68
+SPEAKER_SAMPLE_DEFAULT_SECONDS = 16.0
+SPEAKER_SAMPLE_MAX_SECONDS = 16.0
+SPEAKER_SAMPLE_DEFAULT_MAX_PER_SPEAKER_OBSERVATION = 200
+
 
 @dataclass
 class SpeakerSampleRepairResult:
@@ -137,6 +142,28 @@ class SpeakerSampleDetachResult:
 
 
 @dataclass
+class SpeakerSampleSplitResult:
+    sample_id: int
+    child_sample_ids: list[int] = field(default_factory=list)
+    child_speaker_ids: list[int] = field(default_factory=list)
+    archived_parent: bool = False
+    failed: bool = False
+    failed_embeddings: int = 0
+    messages: list[str] = field(default_factory=list)
+
+    def lines(self) -> list[str]:
+        status = "Failed" if self.failed else "Split"
+        return [
+            f"{status} sample {self.sample_id}",
+            f"Child samples: {', '.join(map(str, self.child_sample_ids)) if self.child_sample_ids else '-'}",
+            f"Child speakers: {', '.join(map(str, sorted(set(self.child_speaker_ids)))) if self.child_speaker_ids else '-'}",
+            f"Archived parent: {self.archived_parent}",
+            f"Failed embeddings: {self.failed_embeddings}",
+            *self.messages,
+        ]
+
+
+@dataclass
 class SpeakerSampleConfidenceRefreshResult:
     scanned_speakers: int = 0
     refreshed_speakers: int = 0
@@ -161,6 +188,7 @@ class SpeakerAutoOrganizeResult:
     threshold: float
     scanned_pairs: int = 0
     merge_candidates: int = 0
+    merge_rounds: int = 0
     merged_speakers: int = 0
     hidden_speakers: int = 0
     moved_sample_files: int = 0
@@ -173,6 +201,7 @@ class SpeakerAutoOrganizeResult:
             f"Threshold: {self.threshold:.3f}",
             f"Scanned pairs: {self.scanned_pairs}",
             f"Merge candidates: {self.merge_candidates}",
+            f"Merge rounds: {self.merge_rounds}",
             f"Merged speakers: {self.merged_speakers}",
             f"Hidden low-similarity speakers: {self.hidden_speakers}",
             f"Moved sample files: {self.moved_sample_files}",
@@ -313,9 +342,10 @@ def process_speakers_for_observation(
     timeline = analysis.get("audio_timeline")
     if not isinstance(timeline, dict):
         return metadata
-    segments = timeline.get("speech_segments")
-    if not isinstance(segments, list):
+    timeline_segments = timeline.get("speech_segments")
+    if not isinstance(timeline_segments, list):
         return metadata
+    segments, sample_segment_source = speaker_sample_source_segments(settings, timeline)
 
     by_label: dict[str, dict[str, Any]] = {}
     speech_like_count = 0
@@ -335,7 +365,11 @@ def process_speakers_for_observation(
         label = normalize_speaker_label(segment.get("speaker"))
         if not label:
             unlabeled_speech_count += 1
-            continue
+            if not cfg_bool(config, "sample_unlabeled_speech", True):
+                continue
+            label = "Unlabeled speech"
+            segment["speaker"] = label
+            segment["speaker_unlabeled"] = True
         scope = normalize_speaker_scope(segment.get("speaker_scope"))
         group_label = speaker_group_label(settings, label, scope)
         group = by_label.setdefault(
@@ -372,6 +406,7 @@ def process_speakers_for_observation(
                 "speech_like_segments": speech_like_count,
                 "overlapped_speech_segments": overlapped_speech_count,
                 "unlabeled_speech_segments": unlabeled_speech_count,
+                "sample_segment_source": sample_segment_source,
                 "overlap_candidate_samples": count_ok_candidates(overlap_candidates),
                 "note": "Speech-like segments had overlapping speaker labels, so they were kept for display but not used as speaker samples.",
             }
@@ -381,6 +416,7 @@ def process_speakers_for_observation(
                 "processed_at": utc_iso(),
                 "speech_like_segments": speech_like_count,
                 "unlabeled_speech_segments": unlabeled_speech_count,
+                "sample_segment_source": sample_segment_source,
                 "note": "Speech-like segments were found, but the transcription backend did not emit speaker labels.",
             }
         else:
@@ -388,6 +424,7 @@ def process_speakers_for_observation(
                 "status": "skipped_no_speech_like_segments",
                 "processed_at": utc_iso(),
                 "speech_like_segments": 0,
+                "sample_segment_source": sample_segment_source,
                 "note": "Only silence, music, lyrics, non-speech markers, or repeated hallucinated text was found.",
             }
         metadata["audio_analysis"] = analysis
@@ -429,29 +466,51 @@ def process_speakers_for_observation(
                 },
             )
 
-        best = best_sample_segment(label_segments)
-        sample = create_sample_for_segment(
-            settings,
-            store,
-            speaker_id=speaker_id,
-            observation_id=observation_id,
-            source_key=source_key,
-            label=group_label,
-            media_path=media_path,
-            segment=best,
-            duration_seconds=parse_seconds(timeline.get("duration_seconds")),
-        )
-        identity = update_speaker_identity_for_sample(
-            settings,
-            store,
-            speaker_id=speaker_id,
-            sample_id=sample.get("sample_id"),
-            sample_path=sample.get("sample_path"),
-        )
+        duration_seconds = parse_seconds(timeline.get("duration_seconds"))
+        sample_plans = speaker_sample_plans_for_segments(settings, label_segments, duration_seconds)
+        samples: list[dict[str, Any]] = []
+        identity = None
+        if not sample_plans:
+            sample_plans = [(None, None)]
+        for sample_index, (segment, clip) in enumerate(sample_plans, start=1):
+            sample = create_sample_for_segment(
+                settings,
+                store,
+                speaker_id=speaker_id,
+                observation_id=observation_id,
+                source_key=source_key,
+                label=group_label,
+                media_path=media_path,
+                segment=segment,
+                duration_seconds=duration_seconds,
+                clip=clip,
+                sample_index=sample_index,
+                sample_count=len(sample_plans),
+            )
+            samples.append(sample)
+            if sample.get("sample_id") is None:
+                continue
+            identity = update_speaker_identity_for_sample(
+                settings,
+                store,
+                speaker_id=speaker_id,
+                sample_id=sample.get("sample_id"),
+                sample_path=sample.get("sample_path"),
+            )
+            speaker_id = identity.speaker_id
+        if identity is None:
+            store.conn.execute("DELETE FROM speaker_aliases WHERE speaker_id = ?", (speaker_id,))
+            store.conn.execute(
+                "DELETE FROM speakers WHERE id = ? AND id NOT IN (SELECT DISTINCT speaker_id FROM speaker_samples WHERE speaker_id IS NOT NULL)",
+                (speaker_id,),
+            )
+            store.conn.commit()
+            continue
         speaker_id = identity.speaker_id
         refreshed_speaker = store.get_speaker(speaker_id)
         if refreshed_speaker is not None:
             speaker_name = str(refreshed_speaker["display_name"])
+        first_sample = samples[0] if samples else {}
         speaker_targets[label] = {
             "speaker_id": speaker_id,
             "speaker_name": speaker_name,
@@ -481,11 +540,21 @@ def process_speakers_for_observation(
                 "speaker_group_label": group_label,
                 "alias": alias,
                 "turn_count": len(label_segments),
-                "sample_path": sample.get("sample_path"),
-                "sample_start_seconds": sample.get("start_seconds"),
-                "sample_end_seconds": sample.get("end_seconds"),
-                "sample_status": sample.get("status"),
-                "sample_error": sample.get("error"),
+                "sample_count": len(samples),
+                "sample_path": first_sample.get("sample_path"),
+                "sample_start_seconds": first_sample.get("start_seconds"),
+                "sample_end_seconds": first_sample.get("end_seconds"),
+                "sample_status": first_sample.get("status"),
+                "sample_error": first_sample.get("error"),
+                "sample_windows": [
+                    {
+                        "sample_id": item.get("sample_id"),
+                        "status": item.get("status"),
+                        "start_seconds": item.get("start_seconds"),
+                        "end_seconds": item.get("end_seconds"),
+                    }
+                    for item in samples
+                ],
                 "identity_status": identity.status,
                 "identity_score": round(identity.score, 4) if identity.score is not None else None,
                 "identity_confidence": (
@@ -512,7 +581,10 @@ def process_speakers_for_observation(
     analysis["speaker_processing"] = {
         "status": "ok",
         "processed_at": utc_iso(),
+        "speech_like_segments": speech_like_count,
         "overlapped_speech_segments": overlapped_speech_count,
+        "unlabeled_speech_segments": unlabeled_speech_count,
+        "sample_segment_source": sample_segment_source,
         "overlap_candidate_samples": count_ok_candidates(overlap_candidates),
         "note": "Local diarization labels are only stable within one recording; speaker_name is the global voice id or user name.",
     }
@@ -531,6 +603,9 @@ def create_sample_for_segment(
     media_path: Path | None,
     segment: dict[str, Any] | None,
     duration_seconds: float | None,
+    clip: tuple[float, float] | None = None,
+    sample_index: int | None = None,
+    sample_count: int | None = None,
 ) -> dict[str, Any]:
     if segment is None:
         return {
@@ -543,15 +618,21 @@ def create_sample_for_segment(
     start = parse_seconds(segment.get("start"))
     end = parse_seconds(segment.get("end"))
     full_transcript = text_value(segment.get("text"), limit=2000)
-    clip = clip_bounds(
-        start,
-        end,
-        duration_seconds=duration_seconds,
-        sample_seconds=speaker_sample_seconds(settings),
-        sample_min_seconds=speaker_sample_min_seconds(settings),
-        boundary_guard_seconds=speaker_sample_boundary_guard_seconds(settings),
-        long_segment_anchor=speaker_sample_long_segment_anchor(settings),
-    )
+    segment_score = speaker_sample_segment_score(segment)
+    source_mixed_speaker_risk = speaker_sample_segment_mixed_speaker_risk(segment)
+    fine_window = speaker_sample_segment_uses_fine_windows(settings, segment)
+    sample_window_seconds = speaker_sample_window_seconds(settings, segment)
+    sample_stride_seconds = speaker_sample_window_stride_seconds(settings, segment, sample_window_seconds)
+    if clip is None:
+        clip = clip_bounds(
+            start,
+            end,
+            duration_seconds=duration_seconds,
+            sample_seconds=speaker_sample_seconds(settings),
+            sample_min_seconds=speaker_sample_min_seconds(settings),
+            boundary_guard_seconds=speaker_sample_boundary_guard_seconds(settings),
+            long_segment_anchor=speaker_sample_long_segment_anchor(settings),
+        )
     transcript = sample_transcript_for_clip(segment, clip)
     sample_source_key = speaker_sample_source_key(observation_id, label, clip[0] if clip else None, clip[1] if clip else None)
 
@@ -560,32 +641,71 @@ def create_sample_for_segment(
     error = None
     preprocessing_metadata: dict[str, Any] | None = None
     quality: dict[str, Any] | None = None
+    quality_recovery: dict[str, Any] | None = None
     if clip and media_path is not None and media_path.exists():
         output = sample_output_path(settings, speaker_id, observation_id, label, clip[0], clip[1])
-        extracted = False
-        if cfg_bool(audio_preprocessing_config(settings), "speaker_samples_enabled", True):
-            extracted, preprocessing_metadata = create_enhanced_sample_clip(settings, media_path, output, clip[0], clip[1])
-        if not extracted:
-            extracted = extract_audio_clip(media_path, output, clip[0], clip[1])
-            if preprocessing_metadata is None:
-                preprocessing_metadata = {"status": "disabled_or_unavailable"}
-        if extracted:
-            quality = audio_quality(settings, output, min_seconds=parse_seconds(settings.speaker_recognition.get("sample_min_seconds")) or 0.5)
-            if quality.get("ok"):
-                sample_path = str(output)
+        attempt = extract_quality_checked_sample_clip(settings, media_path, output, clip[0], clip[1])
+        preprocessing_metadata = attempt.get("audio_preprocessing")
+        quality = attempt.get("quality")
+        sample_path = attempt.get("sample_path")
+        status = str(attempt.get("status") or "sample_failed")
+        error = attempt.get("error")
+        if status == "quality_rejected" and speaker_sample_should_retry_quality(settings, segment, clip, quality):
+            original_quality = quality
+            retry_attempts: list[dict[str, Any]] = []
+            for retry_clip in speaker_sample_quality_retry_clips(settings, segment, clip, duration_seconds):
+                if abs(retry_clip[0] - clip[0]) <= 0.01 and abs(retry_clip[1] - clip[1]) <= 0.01:
+                    continue
+                retry_output = sample_output_path(settings, speaker_id, observation_id, label, retry_clip[0], retry_clip[1])
+                retry = extract_quality_checked_sample_clip(settings, media_path, retry_output, retry_clip[0], retry_clip[1])
+                retry_quality = retry.get("quality") if isinstance(retry.get("quality"), dict) else {}
+                retry_attempts.append(
+                    {
+                        "start_seconds": retry_clip[0],
+                        "end_seconds": retry_clip[1],
+                        "status": retry.get("status"),
+                        "reason": retry_quality.get("reason") or retry.get("error"),
+                    }
+                )
+                if retry.get("status") != "ok":
+                    continue
+                clip = retry_clip
+                transcript = sample_transcript_for_clip(segment, clip)
+                sample_source_key = speaker_sample_source_key(observation_id, label, clip[0], clip[1])
+                preprocessing_metadata = retry.get("audio_preprocessing")
+                quality = retry.get("quality")
+                sample_path = retry.get("sample_path")
                 status = "ok"
-            else:
-                output.unlink(missing_ok=True)
-                status = "quality_rejected"
-                error = str(quality.get("reason") or "quality_gate_failed")
-        else:
-            status = "sample_failed"
-            error = "ffmpeg could not extract sample"
+                error = None
+                quality_recovery = {
+                    "status": "recovered_with_shorter_window",
+                    "original_start_seconds": attempt.get("start_seconds"),
+                    "original_end_seconds": attempt.get("end_seconds"),
+                    "original_reason": (
+                        original_quality.get("reason")
+                        if isinstance(original_quality, dict)
+                        else attempt.get("error")
+                    ),
+                    "attempts": retry_attempts[:12],
+                }
+                break
     elif media_path is None:
         status = "missing_media_path"
     elif not media_path.exists():
         status = "missing_file"
         error = str(media_path)
+
+    if status in {"quality_rejected", "sample_failed", "missing_file"}:
+        return {
+            "sample_id": None,
+            "status": status,
+            "error": error,
+            "sample_path": None,
+            "start_seconds": clip[0] if clip else start,
+            "end_seconds": clip[1] if clip else end,
+            "quality": quality,
+            "rejected_before_library": True,
+        }
 
     row = store.add_speaker_sample(
         speaker_id=speaker_id,
@@ -608,11 +728,24 @@ def create_sample_for_segment(
             "clip_start_seconds": clip[0] if clip else start,
             "clip_end_seconds": clip[1] if clip else end,
             "sample_transcript_mode": "clip_window_excerpt" if full_transcript != transcript else "full_segment",
+            "sample_segment_score": round(segment_score, 4) if segment_score is not None else None,
+            "sample_segment_mixed_speaker_risk": source_mixed_speaker_risk and not fine_window,
+            "source_segment_mixed_speaker_risk": source_mixed_speaker_risk,
+            "sample_fine_window": fine_window,
+            "speaker_sample_source": segment.get("speaker_sample_source"),
+            "speaker_sample_source_index": segment.get("speaker_sample_source_index"),
+            "sample_window_index": sample_index,
+            "sample_window_count": sample_count,
+            "quality_recovery": quality_recovery,
             "boundary_policy": "inside_single_speaker_segment_only",
             "clip_strategy": {
                 "long_segment_anchor": speaker_sample_long_segment_anchor(settings),
-                "sample_seconds": speaker_sample_seconds(settings),
+                "sample_seconds": sample_window_seconds,
+                "sample_stride_seconds": sample_stride_seconds,
                 "boundary_guard_seconds": speaker_sample_boundary_guard_seconds(settings),
+                "fine_window": fine_window,
+                "sample_source": segment.get("speaker_sample_source"),
+                "quality_recovery_window": bool(quality_recovery),
             },
         },
     )
@@ -624,6 +757,124 @@ def create_sample_for_segment(
         "start_seconds": row["start_seconds"],
         "end_seconds": row["end_seconds"],
     }
+
+
+def extract_quality_checked_sample_clip(
+    settings: Settings,
+    media_path: Path,
+    output: Path,
+    start: float,
+    end: float,
+) -> dict[str, Any]:
+    preprocessing_metadata: dict[str, Any] | None = None
+    extracted = False
+    if cfg_bool(audio_preprocessing_config(settings), "speaker_samples_enabled", True):
+        extracted, preprocessing_metadata = create_enhanced_sample_clip(settings, media_path, output, start, end)
+    if not extracted:
+        extracted = extract_audio_clip(media_path, output, start, end)
+        if preprocessing_metadata is None:
+            preprocessing_metadata = {"status": "disabled_or_unavailable"}
+    if not extracted:
+        return {
+            "status": "sample_failed",
+            "error": "ffmpeg could not extract sample",
+            "sample_path": None,
+            "audio_preprocessing": preprocessing_metadata,
+            "quality": None,
+            "start_seconds": start,
+            "end_seconds": end,
+        }
+
+    quality = audio_quality(
+        settings,
+        output,
+        min_seconds=parse_seconds(settings.speaker_recognition.get("sample_min_seconds")) or 0.5,
+    )
+    if quality.get("ok"):
+        return {
+            "status": "ok",
+            "error": None,
+            "sample_path": str(output),
+            "audio_preprocessing": preprocessing_metadata,
+            "quality": quality,
+            "start_seconds": start,
+            "end_seconds": end,
+        }
+
+    output.unlink(missing_ok=True)
+    return {
+        "status": "quality_rejected",
+        "error": str(quality.get("reason") or "quality_gate_failed"),
+        "sample_path": None,
+        "audio_preprocessing": preprocessing_metadata,
+        "quality": quality,
+        "start_seconds": start,
+        "end_seconds": end,
+    }
+
+
+def speaker_sample_should_retry_quality(
+    settings: Settings,
+    segment: dict[str, Any],
+    clip: tuple[float, float],
+    quality: dict[str, Any] | None,
+) -> bool:
+    if not quality or quality.get("ok"):
+        return False
+    if str(quality.get("reason") or "") not in {"noisy_background", "low_speech_activity"}:
+        return False
+    if speaker_sample_segment_uses_fine_windows(settings, segment):
+        return False
+    clip_duration = max(0.0, clip[1] - clip[0])
+    return clip_duration >= max(4.0, speaker_sample_fine_window_seconds(settings) + 0.5)
+
+
+def speaker_sample_quality_retry_clips(
+    settings: Settings,
+    segment: dict[str, Any],
+    clip: tuple[float, float],
+    duration_seconds: float | None,
+) -> list[tuple[float, float]]:
+    clip_start = max(0.0, clip[0])
+    clip_end = clip[1]
+    if duration_seconds is not None:
+        clip_end = min(clip_end, duration_seconds)
+    available = max(0.0, clip_end - clip_start)
+    min_seconds = speaker_sample_min_seconds(settings)
+    if available < max(4.0, min_seconds):
+        return []
+
+    raw_lengths = [
+        min(8.0, available),
+        min(6.0, available),
+        min(5.0, available),
+        min(4.0, available),
+        min(speaker_sample_fine_window_seconds(settings), available),
+    ]
+    lengths: list[float] = []
+    for length in raw_lengths:
+        rounded = round(float(length), 3)
+        if rounded >= min_seconds and rounded < available - 0.01 and rounded not in lengths:
+            lengths.append(rounded)
+    lengths.sort(reverse=True)
+
+    clips: list[tuple[float, float]] = []
+    max_attempts = int(settings.speaker_recognition.get("sample_quality_retry_max_attempts", 12) or 12)
+    for length in lengths:
+        stride = max(0.5, min(length / 2.0, speaker_sample_fine_stride_seconds(settings)))
+        last_start = max(clip_start, clip_end - length)
+        cursor = clip_start
+        while cursor <= last_start + 0.01 and len(clips) < max_attempts:
+            candidate = (round(cursor, 3), round(cursor + length, 3))
+            if candidate not in clips:
+                clips.append(candidate)
+            cursor += stride
+        tail = (round(last_start, 3), round(last_start + length, 3))
+        if len(clips) < max_attempts and tail not in clips:
+            clips.append(tail)
+        if len(clips) >= max_attempts:
+            break
+    return clips
 
 
 def create_overlap_candidate_samples(
@@ -1136,6 +1387,241 @@ def detach_speaker_sample(
     return result
 
 
+def split_speaker_sample(
+    settings: Settings,
+    store: Store,
+    *,
+    sample_id: int,
+    cut_points: list[float],
+    separate_speakers: bool = True,
+    archive_parent: bool = True,
+) -> SpeakerSampleSplitResult:
+    result = SpeakerSampleSplitResult(sample_id=sample_id)
+    sample = store.get_speaker_sample(sample_id)
+    if sample is None:
+        result.failed = True
+        result.messages.append(f"- Sample not found: {sample_id}")
+        return result
+
+    sample_path = str(sample["sample_path"] or "").strip()
+    if not sample_path:
+        result.failed = True
+        result.messages.append("- Sample has no audio file to split.")
+        return result
+    source_path = Path(sample_path).expanduser()
+    if not source_path.exists() or not source_path.is_file():
+        result.failed = True
+        result.messages.append(f"- Sample audio file is missing: {source_path}")
+        return result
+
+    start = parse_seconds(sample["start_seconds"])
+    end = parse_seconds(sample["end_seconds"])
+    if start is None or end is None or end <= start:
+        result.failed = True
+        result.messages.append("- Sample needs valid start/end seconds before it can be split.")
+        return result
+    duration = end - start
+    min_seconds = speaker_sample_min_seconds(settings)
+    bounds = normalized_sample_split_bounds(cut_points, duration, min_seconds=min_seconds)
+    if bounds is None:
+        result.failed = True
+        result.messages.append(
+            f"- Invalid cut points. Use seconds inside 0-{duration:.2f}s and keep every piece at least {min_seconds:.2f}s."
+        )
+        return result
+
+    original_speaker_id = int(sample["speaker_id"])
+    original_speaker_name = str(sample["speaker_name"] or original_speaker_id)
+    parent_metadata = json_object(sample["metadata"])
+    parent_transcript = str(sample["transcript"] or "")
+    run_at = utc_iso()
+    model = embedding_model_key(settings)
+    created_speaker_ids: list[int] = []
+    created_sample_ids: list[int] = []
+
+    for index, (relative_start, relative_end) in enumerate(bounds, start=1):
+        absolute_start = round(start + relative_start, 3)
+        absolute_end = round(start + relative_end, 3)
+        if separate_speakers:
+            speaker = store.ensure_speaker_for_alias(
+                f"manual-split-sample:{sample_id}:{index}:{run_at}",
+                default_name="Voice",
+                label="manual_split_sample",
+                metadata={
+                    "alias_type": "manual_split_sample",
+                    "parent_sample_id": sample_id,
+                    "parent_speaker_id": original_speaker_id,
+                    "parent_speaker_name": original_speaker_name,
+                    "split_index": index,
+                    "split_count": len(bounds),
+                    "split_at": run_at,
+                },
+            )
+            target_speaker_id = int(speaker["id"])
+        else:
+            target_speaker_id = original_speaker_id
+        created_speaker_ids.append(target_speaker_id)
+
+        output = sample_output_path(
+            settings,
+            target_speaker_id,
+            int(sample["observation_id"] or 0),
+            f"manual-split-{sample_id}-{index}",
+            absolute_start,
+            absolute_end,
+        )
+        attempt = extract_quality_checked_sample_clip(
+            settings,
+            source_path,
+            output,
+            relative_start,
+            relative_end,
+        )
+        if attempt.get("status") != "ok":
+            result.failed = True
+            result.messages.append(
+                f"- Split {index} failed {relative_start:.2f}-{relative_end:.2f}s: "
+                f"{attempt.get('error') or attempt.get('status')}"
+            )
+            for child_id in created_sample_ids:
+                store.conn.execute("DELETE FROM speaker_embeddings WHERE sample_id = ?", (child_id,))
+                store.conn.execute("DELETE FROM speaker_samples WHERE id = ?", (child_id,))
+            store.conn.commit()
+            return result
+
+        transcript = transcript_excerpt_for_clip(
+            parent_transcript,
+            start,
+            end,
+            absolute_start,
+            absolute_end,
+        )
+        source_key = f"manual-split:{sample_id}:{index}:{relative_start:.3f}:{relative_end:.3f}:{run_at}"
+        child = store.add_speaker_sample(
+            speaker_id=target_speaker_id,
+            observation_id=int(sample["observation_id"]) if sample["observation_id"] is not None else None,
+            source_key=source_key,
+            media_path=str(sample["media_path"] or sample_path),
+            sample_path=str(attempt.get("sample_path") or output),
+            start_seconds=absolute_start,
+            end_seconds=absolute_end,
+            transcript=transcript,
+            metadata={
+                "local_label": f"manual_split:{index}",
+                "status": "ok",
+                "sample_role": "manual_split_child",
+                "manual_split_parent_sample_id": sample_id,
+                "manual_split_parent_speaker_id": original_speaker_id,
+                "manual_split_parent_speaker_name": original_speaker_name,
+                "manual_split_index": index,
+                "manual_split_count": len(bounds),
+                "manual_split_relative_start_seconds": relative_start,
+                "manual_split_relative_end_seconds": relative_end,
+                "manual_split_at": run_at,
+                "source_segment_start": start,
+                "source_segment_end": end,
+                "source_segment_transcript": parent_metadata.get("source_segment_transcript") or parent_transcript,
+                "sample_transcript_mode": "manual_split_excerpt",
+                "audio_preprocessing": attempt.get("audio_preprocessing"),
+                "quality": attempt.get("quality"),
+                "boundary_policy": "manual_sample_split",
+            },
+        )
+        child_id = int(child["id"])
+        created_sample_ids.append(child_id)
+        result.child_sample_ids.append(child_id)
+        result.child_speaker_ids.append(target_speaker_id)
+
+        try:
+            vector = speaker_embedding(settings, Path(str(child["sample_path"])))
+            store.add_speaker_embedding(
+                speaker_id=target_speaker_id,
+                sample_id=child_id,
+                model=model,
+                vector=vector,
+                metadata={
+                    "sample_path": str(child["sample_path"]),
+                    "created_at": run_at,
+                    "reason": "manual_sample_split",
+                    "parent_sample_id": sample_id,
+                },
+            )
+        except Exception as exc:
+            result.failed_embeddings += 1
+            child_metadata = json_object(child["metadata"])
+            child_metadata.update(
+                {
+                    "embedding_repair_status": "failed",
+                    "embedding_repair_error": str(exc)[:500],
+                    "embedding_repaired_at": utc_iso(),
+                    "embedding_model": model,
+                }
+            )
+            update_speaker_sample_metadata(store, child_id, child_metadata)
+
+    if archive_parent:
+        parent_metadata.update(
+            {
+                "sample_role": "mixed_parent_archived",
+                "status": "archived",
+                "manual_split_archived_at": run_at,
+                "manual_split_child_sample_ids": created_sample_ids,
+                "manual_split_child_speaker_ids": created_speaker_ids,
+                "manual_split_cut_points": sorted(float(point) for point in cut_points),
+                "manual_split_mode": "separate_speakers" if separate_speakers else "keep_speaker",
+            }
+        )
+        store.conn.execute(
+            """
+            UPDATE speaker_samples
+            SET metadata = ?
+            WHERE id = ?
+            """,
+            (json.dumps(parent_metadata, ensure_ascii=False, sort_keys=True), sample_id),
+        )
+        store.conn.execute("DELETE FROM speaker_embeddings WHERE sample_id = ?", (sample_id,))
+        result.archived_parent = True
+
+    store.conn.commit()
+    for speaker_id in sorted(set([original_speaker_id, *created_speaker_ids])):
+        if store.get_speaker(speaker_id) is None:
+            continue
+        try:
+            refresh_identity_status(settings, store, speaker_id, model)
+        except Exception as exc:
+            result.messages.append(f"- Refreshed speaker {speaker_id} after split but confidence update failed: {exc}")
+    result.messages.append(f"- Created {len(created_sample_ids)} split sample(s).")
+    return result
+
+
+def normalized_sample_split_bounds(
+    cut_points: list[float],
+    duration_seconds: float,
+    *,
+    min_seconds: float,
+) -> list[tuple[float, float]] | None:
+    if duration_seconds <= 0:
+        return None
+    cleaned: list[float] = []
+    for point in cut_points:
+        try:
+            value = float(point)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(value) or value <= 0 or value >= duration_seconds:
+            return None
+        rounded = round(value, 3)
+        if rounded not in cleaned:
+            cleaned.append(rounded)
+    if not cleaned:
+        return None
+    points = [0.0, *sorted(cleaned), round(duration_seconds, 3)]
+    bounds = [(points[index], points[index + 1]) for index in range(len(points) - 1)]
+    if any(end - start < min_seconds for start, end in bounds):
+        return None
+    return bounds
+
+
 def refresh_speaker_sample_confidences(
     settings: Settings,
     store: Store,
@@ -1502,7 +1988,14 @@ def resolve_speaker_match_decision(
     return result
 
 
-def speaker_confidence_summary(row: Any, *, sample_count: int, embedding_count: int) -> dict[str, Any]:
+def speaker_confidence_summary(
+    row: Any,
+    *,
+    sample_count: int,
+    embedding_count: int,
+    confidence_threshold: float | None = None,
+) -> dict[str, Any]:
+    threshold = speaker_confidence_threshold_value(confidence_threshold)
     confidence = row["confidence"] if "confidence" in row.keys() else None
     try:
         confidence_number = float(confidence)
@@ -1522,7 +2015,7 @@ def speaker_confidence_summary(row: Any, *, sample_count: int, embedding_count: 
         label = "已人工确认"
         if confidence_number is None:
             detail = "人物归属已人工确认；embedding 一致性尚未重算。"
-        elif confidence_number < 0.68:
+        elif confidence_number < threshold:
             detail = "人物归属已人工确认；当前数值只是 embedding 一致性诊断，可能受多语言、录音条件或短样本影响。"
         else:
             detail = "人物归属已人工确认；一致性分数仅用于后续质量监控。"
@@ -1534,10 +2027,10 @@ def speaker_confidence_summary(row: Any, *, sample_count: int, embedding_count: 
         level = "unknown"
         label = "未计算"
         detail = "尚未重算聚类一致性。"
-    elif confidence_number < 0.68:
+    elif confidence_number < threshold:
         level = "low"
         label = "低一致性"
-        detail = "样本之间 embedding 差异较大，可能是多语言、录音条件、短样本或重叠声音造成；未人工确认时建议复听。"
+        detail = f"样本之间 embedding 差异较大，低于当前阈值 {threshold:.3f}；未人工确认时建议复听。"
     else:
         level = "usable"
         label = "可用"
@@ -1549,10 +2042,60 @@ def speaker_confidence_summary(row: Any, *, sample_count: int, embedding_count: 
         "value": round(confidence_number, 4) if confidence_number is not None else None,
         "sample_count": sample_count,
         "embedding_count": embedding_count,
+        "threshold": round(threshold, 4),
     }
 
 
-def speaker_profiles_payload(store: Store, *, limit: int = 24) -> list[dict[str, Any]]:
+def speaker_confidence_threshold_value(value: float | None) -> float:
+    try:
+        threshold = float(value if value is not None else DEFAULT_SPEAKER_CONFIDENCE_THRESHOLD)
+    except (TypeError, ValueError):
+        return DEFAULT_SPEAKER_CONFIDENCE_THRESHOLD
+    if threshold <= 0 or threshold > 1:
+        return DEFAULT_SPEAKER_CONFIDENCE_THRESHOLD
+    return threshold
+
+
+def speaker_review_confidence_threshold(settings: Settings) -> float:
+    return speaker_recognition_threshold(settings, "candidate_threshold", DEFAULT_SPEAKER_CONFIDENCE_THRESHOLD)
+
+
+def speaker_threshold_config(settings: Settings) -> dict[str, dict[str, Any]]:
+    try:
+        auto_merge_max_merges = int(settings.speaker_recognition.get("auto_merge_max_merges", 100))
+    except (TypeError, ValueError):
+        auto_merge_max_merges = 100
+    return {
+        "speaker_recognition": {
+            "auto_merge_threshold": speaker_recognition_threshold(settings, "auto_merge_threshold", 0.68),
+            "auto_merge_max_merges": max(1, min(auto_merge_max_merges, 5000)),
+            "candidate_threshold": speaker_recognition_threshold(
+                settings,
+                "candidate_threshold",
+                DEFAULT_SPEAKER_CONFIDENCE_THRESHOLD,
+            ),
+            "review_min_confidence": speaker_recognition_threshold(settings, "review_min_confidence", 0.90),
+        }
+    }
+
+
+def speaker_recognition_threshold(settings: Settings, key: str, default: float) -> float:
+    config = getattr(settings, "speaker_recognition", {}) or {}
+    try:
+        value = float(config.get(key, default))
+    except (TypeError, ValueError):
+        return default
+    if value <= 0 or value > 1:
+        return default
+    return value
+
+
+def speaker_profiles_payload(
+    store: Store,
+    *,
+    limit: int = 24,
+    confidence_threshold: float | None = None,
+) -> list[dict[str, Any]]:
     rows = store.list_speakers()
     active = [
         row
@@ -1562,12 +2105,25 @@ def speaker_profiles_payload(store: Store, *, limit: int = 24) -> list[dict[str,
     ]
     active.sort(key=lambda row: (-int(row["sample_count"] or 0), int(row["id"])))
     return [
-        speaker_profile_payload(store, int(row["id"]), sample_limit=3, timeline_limit=4)
+        speaker_profile_payload(
+            store,
+            int(row["id"]),
+            sample_limit=3,
+            timeline_limit=4,
+            confidence_threshold=confidence_threshold,
+        )
         for row in active[:limit]
     ]
 
 
-def speaker_profile_payload(store: Store, speaker_id: int, *, sample_limit: int = 8, timeline_limit: int = 12) -> dict[str, Any]:
+def speaker_profile_payload(
+    store: Store,
+    speaker_id: int,
+    *,
+    sample_limit: int = 8,
+    timeline_limit: int = 12,
+    confidence_threshold: float | None = None,
+) -> dict[str, Any]:
     row = store.get_speaker(speaker_id)
     if row is None:
         return {"ok": False, "speaker_id": speaker_id, "error": "speaker_not_found"}
@@ -1598,6 +2154,7 @@ def speaker_profile_payload(store: Store, speaker_id: int, *, sample_limit: int 
             row,
             sample_count=int(stats["sample_count"] or 0),
             embedding_count=embedding_count,
+            confidence_threshold=confidence_threshold,
         ),
         "representative_samples": representative or samples[:3],
         "samples": samples,
@@ -2146,7 +2703,62 @@ def sample_duration_seconds(observation_metadata: dict[str, Any]) -> float | Non
 
 
 def speaker_sample_seconds(settings: Settings) -> float:
-    return parse_seconds(settings.speaker_recognition.get("sample_seconds")) or 8.0
+    seconds = parse_seconds(settings.speaker_recognition.get("sample_seconds"))
+    if seconds is None:
+        seconds = SPEAKER_SAMPLE_DEFAULT_SECONDS
+    return min(max(0.25, seconds), SPEAKER_SAMPLE_MAX_SECONDS)
+
+
+def speaker_sample_stride_seconds(settings: Settings) -> float:
+    stride = parse_seconds(settings.speaker_recognition.get("sample_stride_seconds"))
+    if stride is None or stride <= 0:
+        return speaker_sample_seconds(settings)
+    return max(speaker_sample_min_seconds(settings), stride)
+
+
+def speaker_sample_fine_window_seconds(settings: Settings) -> float:
+    seconds = parse_seconds(settings.speaker_recognition.get("sample_fine_window_seconds"))
+    if seconds is None:
+        seconds = 3.0
+    return min(speaker_sample_seconds(settings), max(speaker_sample_min_seconds(settings), seconds))
+
+
+def speaker_sample_fine_stride_seconds(settings: Settings) -> float:
+    stride = parse_seconds(settings.speaker_recognition.get("sample_fine_stride_seconds"))
+    if stride is None or stride <= 0:
+        return speaker_sample_fine_window_seconds(settings)
+    return max(speaker_sample_min_seconds(settings), min(speaker_sample_fine_window_seconds(settings), stride))
+
+
+def speaker_sample_segment_uses_fine_windows(settings: Settings, segment: dict[str, Any]) -> bool:
+    if speaker_sample_segment_mixed_speaker_risk(segment):
+        return True
+    start = parse_seconds(segment.get("start"))
+    end = parse_seconds(segment.get("end"))
+    if start is None or end is None or end <= start:
+        return False
+    return (end - start) > speaker_sample_seconds(settings) + 0.01
+
+
+def speaker_sample_window_seconds(settings: Settings, segment: dict[str, Any]) -> float:
+    if speaker_sample_segment_uses_fine_windows(settings, segment):
+        return speaker_sample_fine_window_seconds(settings)
+    return speaker_sample_seconds(settings)
+
+
+def speaker_sample_window_stride_seconds(settings: Settings, segment: dict[str, Any], window_seconds: float | None = None) -> float:
+    if speaker_sample_segment_uses_fine_windows(settings, segment):
+        return speaker_sample_fine_stride_seconds(settings)
+    return speaker_sample_stride_seconds(settings)
+
+
+def speaker_samples_per_speaker_per_observation(settings: Settings) -> int:
+    raw = settings.speaker_recognition.get("samples_per_speaker_per_observation")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = SPEAKER_SAMPLE_DEFAULT_MAX_PER_SPEAKER_OBSERVATION
+    return min(200, max(1, value))
 
 
 def speaker_sample_min_seconds(settings: Settings) -> float:
@@ -2186,20 +2798,26 @@ def speaker_sample_clip_plan(settings: Settings, sample: Any) -> dict[str, Any]:
         return {"ok": False, "status": "skipped_missing_matching_segment"}
     start = parse_seconds(segment.get("start"))
     end = parse_seconds(segment.get("end"))
-    clip = clip_bounds(
-        start,
-        end,
-        duration_seconds=sample_duration_seconds(observation_metadata),
-        sample_seconds=speaker_sample_seconds(settings),
-        sample_min_seconds=speaker_sample_min_seconds(settings),
-        boundary_guard_seconds=speaker_sample_boundary_guard_seconds(settings),
-        long_segment_anchor=speaker_sample_long_segment_anchor(settings),
-    )
+    sample_seconds = speaker_sample_seconds(settings)
+    existing_clip = existing_sample_clip(sample)
+    if existing_clip and clip_within_segment(existing_clip, start, end) and sample_clip_duration(existing_clip) <= sample_seconds + 0.01:
+        clip = existing_clip
+    else:
+        clip = clip_bounds(
+            start,
+            end,
+            duration_seconds=sample_duration_seconds(observation_metadata),
+            sample_seconds=sample_seconds,
+            sample_min_seconds=speaker_sample_min_seconds(settings),
+            boundary_guard_seconds=speaker_sample_boundary_guard_seconds(settings),
+            long_segment_anchor=speaker_sample_long_segment_anchor(settings),
+        )
     if clip is None:
         return {"ok": False, "status": "skipped_invalid_clip_bounds"}
     label = speaker_sample_plan_label(sample, segment)
     full_transcript = text_value(segment.get("text"), limit=2000)
     transcript = sample_transcript_for_clip(segment, clip)
+    segment_score = speaker_sample_segment_score(segment)
     return {
         "ok": True,
         "status": "ok",
@@ -2211,12 +2829,32 @@ def speaker_sample_clip_plan(settings: Settings, sample: Any) -> dict[str, Any]:
         "source_segment_end": end,
         "source_segment_transcript": full_transcript,
         "sample_transcript_mode": "clip_window_excerpt" if full_transcript != transcript else "full_segment",
+        "sample_segment_score": round(segment_score, 4) if segment_score is not None else None,
+        "sample_segment_mixed_speaker_risk": speaker_sample_segment_mixed_speaker_risk(segment),
         "clip_strategy": {
             "long_segment_anchor": speaker_sample_long_segment_anchor(settings),
-            "sample_seconds": speaker_sample_seconds(settings),
+            "sample_seconds": sample_seconds,
             "boundary_guard_seconds": speaker_sample_boundary_guard_seconds(settings),
         },
     }
+
+
+def existing_sample_clip(sample: Any) -> tuple[float, float] | None:
+    start = parse_seconds(sample["start_seconds"])
+    end = parse_seconds(sample["end_seconds"])
+    if start is None or end is None or end <= start:
+        return None
+    return (start, end)
+
+
+def sample_clip_duration(clip: tuple[float, float]) -> float:
+    return max(0.0, clip[1] - clip[0])
+
+
+def clip_within_segment(clip: tuple[float, float], start: float | None, end: float | None) -> bool:
+    if start is None or end is None or end <= start:
+        return False
+    return clip[0] >= max(0.0, start) - 0.01 and clip[1] <= end + 0.01
 
 
 def speaker_sample_plan_label(sample: Any, segment: dict[str, Any]) -> str:
@@ -2277,6 +2915,8 @@ def repaired_sample_clip_metadata(
         "source_segment_end": plan.get("source_segment_end"),
         "source_segment_transcript": plan.get("source_segment_transcript"),
         "sample_transcript_mode": plan.get("sample_transcript_mode"),
+        "sample_segment_score": plan.get("sample_segment_score"),
+        "sample_segment_mixed_speaker_risk": plan.get("sample_segment_mixed_speaker_risk"),
         "boundary_policy": "inside_single_speaker_segment_only",
         "clip_strategy": plan.get("clip_strategy"),
         "sample_clip_repaired_at": run_at,
@@ -2337,8 +2977,10 @@ def auto_organize_speakers(
     merge_threshold = float(threshold if threshold is not None else settings.speaker_recognition.get("auto_merge_threshold", 0.68))
     result = SpeakerAutoOrganizeResult(threshold=merge_threshold)
     affected_speaker_ids: set[int] = set()
+    merge_budget = max(0, int(max_merges))
 
-    for _ in range(max(0, max_merges)):
+    while result.merged_speakers < merge_budget:
+        remaining_budget = merge_budget - result.merged_speakers
         rows = {int(row["id"]): row for row in store.list_speakers()}
         vectors_by_speaker = speaker_vectors_by_speaker(store, model=model)
         candidates = speaker_merge_candidates(rows, vectors_by_speaker, threshold=merge_threshold)
@@ -2346,55 +2988,70 @@ def auto_organize_speakers(
         result.merge_candidates += len(candidates)
         if not candidates:
             break
+        selected_candidates = disjoint_speaker_merge_candidates(candidates, max_pairs=remaining_budget)
+        if not selected_candidates:
+            break
+        result.merge_rounds += 1
+        if len(result.messages) < 40:
+            result.messages.append(
+                f"- Merge round {result.merge_rounds}: selected {len(selected_candidates)} "
+                f"of {len(candidates)} candidate pair(s)."
+            )
 
-        candidate = candidates[0]
-        source_id, target_id = choose_auto_merge_direction(rows, int(candidate["left_id"]), int(candidate["right_id"]))
-        source = rows[source_id]
-        target = rows[target_id]
-        source_samples = store.list_speaker_samples(source_id)
-        try:
-            store.record_speaker_match_decision(
-                source_speaker_id=source_id,
-                target_speaker_id=target_id,
-                sample_id=None,
-                model=model,
-                score=float(candidate["score"]),
-                threshold=merge_threshold,
-                status="auto_merged_pending_review",
-                metadata={
-                    "decision": "existing_speaker_centroids_above_auto_merge_threshold",
-                    "workflow": "auto_organize_speakers",
-                    "left_speaker_id": candidate["left_id"],
-                    "right_speaker_id": candidate["right_id"],
-                    "source_sample_count": source["sample_count"],
-                    "target_sample_count": target["sample_count"],
-                },
-            )
-            moved_files = relocate_speaker_sample_files_after_merge(store, source_samples, target_id)
-            if not store.merge_speakers(source_id, target_id):
-                result.failed += 1
-                result.messages.append(f"- Merge failed: {source_id} -> {target_id}.")
-                break
-            result.merged_speakers += 1
-            result.moved_sample_files += moved_files
-            affected_speaker_ids.add(target_id)
-            mark_auto_merge_pending_review(
-                store,
-                target_id,
-                source=source,
-                target=target,
-                score=float(candidate["score"]),
-                threshold=merge_threshold,
-            )
-            if len(result.messages) < 40:
-                result.messages.append(
-                    "- Auto-merged "
-                    f"{speaker_label(source)} -> {speaker_label(target)} "
-                    f"score={candidate['score']:.3f}."
+        round_failed = False
+        for candidate in selected_candidates:
+            source_id, target_id = choose_auto_merge_direction(rows, int(candidate["left_id"]), int(candidate["right_id"]))
+            source = rows[source_id]
+            target = rows[target_id]
+            source_samples = store.list_speaker_samples(source_id)
+            try:
+                store.record_speaker_match_decision(
+                    source_speaker_id=source_id,
+                    target_speaker_id=target_id,
+                    sample_id=None,
+                    model=model,
+                    score=float(candidate["score"]),
+                    threshold=merge_threshold,
+                    status="auto_merged_pending_review",
+                    metadata={
+                        "decision": "existing_speaker_centroids_above_auto_merge_threshold",
+                        "workflow": "auto_organize_speakers",
+                        "merge_round": result.merge_rounds,
+                        "left_speaker_id": candidate["left_id"],
+                        "right_speaker_id": candidate["right_id"],
+                        "source_sample_count": source["sample_count"],
+                        "target_sample_count": target["sample_count"],
+                    },
                 )
-        except Exception as exc:
-            result.failed += 1
-            result.messages.append(f"- Merge failed {source_id} -> {target_id}: {exc}")
+                moved_files = relocate_speaker_sample_files_after_merge(store, source_samples, target_id)
+                if not store.merge_speakers(source_id, target_id):
+                    result.failed += 1
+                    result.messages.append(f"- Merge failed: {source_id} -> {target_id}.")
+                    round_failed = True
+                    break
+                result.merged_speakers += 1
+                result.moved_sample_files += moved_files
+                affected_speaker_ids.add(target_id)
+                mark_auto_merge_pending_review(
+                    store,
+                    target_id,
+                    source=source,
+                    target=target,
+                    score=float(candidate["score"]),
+                    threshold=merge_threshold,
+                )
+                if len(result.messages) < 40:
+                    result.messages.append(
+                        "- Auto-merged "
+                        f"{speaker_label(source)} -> {speaker_label(target)} "
+                        f"score={candidate['score']:.3f}."
+                    )
+            except Exception as exc:
+                result.failed += 1
+                result.messages.append(f"- Merge failed {source_id} -> {target_id}: {exc}")
+                round_failed = True
+                break
+        if round_failed:
             break
 
     if hide_unmatched:
@@ -2418,6 +3075,23 @@ def auto_organize_speakers(
     if result.merged_speakers == 0 and result.hidden_speakers == 0:
         result.messages.append("- No speakers needed automatic merge or hiding.")
     return result
+
+
+def disjoint_speaker_merge_candidates(candidates: list[dict[str, Any]], *, max_pairs: int) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    used_speaker_ids: set[int] = set()
+    if max_pairs <= 0:
+        return selected
+    for candidate in candidates:
+        left_id = int(candidate["left_id"])
+        right_id = int(candidate["right_id"])
+        if left_id in used_speaker_ids or right_id in used_speaker_ids:
+            continue
+        selected.append(candidate)
+        used_speaker_ids.update({left_id, right_id})
+        if len(selected) >= max_pairs:
+            break
+    return selected
 
 
 def mark_speaker_review_status(
@@ -3068,19 +3742,244 @@ def default_speaker_name(label: str) -> str:
 def best_sample_segment(segments: list[dict[str, Any]]) -> dict[str, Any] | None:
     scored: list[tuple[float, dict[str, Any]]] = []
     for segment in segments:
-        if not segment_is_speech_like(segment):
+        score = speaker_sample_segment_score(segment)
+        if score is None:
             continue
-        start = parse_seconds(segment.get("start"))
-        end = parse_seconds(segment.get("end"))
-        duration = max(0.0, (end or 0.0) - (start or 0.0)) if start is not None and end is not None else 0.0
-        text = text_value(segment.get("text"), limit=500) or ""
-        score = min(duration, 8.0) + min(len(text) / 80.0, 4.0)
-        if text_repetition_ratio(text) > 0.65:
-            score -= 6.0
         scored.append((score, segment))
     if not scored:
         return None
     return max(scored, key=lambda item: item[0])[1]
+
+
+def speaker_sample_plans_for_segments(
+    settings: Settings,
+    segments: list[dict[str, Any]],
+    duration_seconds: float | None,
+) -> list[tuple[dict[str, Any], tuple[float, float]]]:
+    limit = speaker_samples_per_speaker_per_observation(settings)
+    ordered = sorted(
+        (
+            segment
+            for segment in segments
+            if isinstance(segment, dict)
+            and segment_is_speech_like(segment)
+        ),
+        key=lambda segment: parse_seconds(segment.get("start")) or 0.0,
+    )
+    if not ordered or limit <= 0:
+        return []
+
+    clip_groups: list[tuple[dict[str, Any], list[tuple[float, float]]]] = []
+    for segment in ordered:
+        clips = speaker_sample_clips_for_segment(settings, segment, duration_seconds, limit=limit)
+        if clips:
+            clip_groups.append((segment, clips))
+    if not clip_groups:
+        return []
+
+    selected_indices = evenly_spaced_indices(len(clip_groups), limit)
+    selected_groups = [clip_groups[index] for index in selected_indices]
+    plans: list[tuple[dict[str, Any], tuple[float, float]]] = []
+    for segment, clips in selected_groups:
+        plans.append((segment, clips[0]))
+        if len(plans) >= limit:
+            return plans
+
+    extra_index = 1
+    while len(plans) < limit:
+        added = False
+        for segment, clips in selected_groups:
+            if extra_index >= len(clips):
+                continue
+            plans.append((segment, clips[extra_index]))
+            added = True
+            if len(plans) >= limit:
+                break
+        if not added:
+            break
+        extra_index += 1
+    return plans
+
+
+def evenly_spaced_indices(count: int, limit: int) -> list[int]:
+    if count <= 0 or limit <= 0:
+        return []
+    if count <= limit:
+        return list(range(count))
+    if limit == 1:
+        return [0]
+    indices: list[int] = []
+    for index in range(limit):
+        selected = int(round(index * (count - 1) / (limit - 1)))
+        if selected not in indices:
+            indices.append(selected)
+    if len(indices) < limit:
+        for selected in range(count):
+            if selected not in indices:
+                indices.append(selected)
+                if len(indices) >= limit:
+                    break
+    return sorted(indices[:limit])
+
+
+def speaker_sample_clips_for_segment(
+    settings: Settings,
+    segment: dict[str, Any],
+    duration_seconds: float | None,
+    *,
+    limit: int,
+) -> list[tuple[float, float]]:
+    if limit <= 0:
+        return []
+    start = parse_seconds(segment.get("start"))
+    end = parse_seconds(segment.get("end"))
+    if start is None or end is None or end <= start:
+        return []
+
+    sample_seconds = speaker_sample_window_seconds(settings, segment)
+    min_seconds = speaker_sample_min_seconds(settings)
+    boundary_guard = speaker_sample_boundary_guard_seconds(settings)
+    fallback = clip_bounds(
+        start,
+        end,
+        duration_seconds=duration_seconds,
+        sample_seconds=sample_seconds,
+        sample_min_seconds=min_seconds,
+        boundary_guard_seconds=boundary_guard,
+        long_segment_anchor=speaker_sample_long_segment_anchor(settings),
+    )
+    if fallback is None:
+        return []
+
+    segment_duration = end - start
+    if segment_duration <= sample_seconds + 0.01 or limit == 1:
+        return [fallback]
+
+    clip_start = max(0.0, start)
+    clip_end = end
+    if duration_seconds is not None:
+        clip_end = min(clip_end, duration_seconds)
+    guarded_start = clip_start
+    guarded_end = clip_end
+    if clip_end - clip_start > boundary_guard * 2 + min_seconds:
+        guarded_start += boundary_guard
+        guarded_end -= boundary_guard
+    available = guarded_end - guarded_start
+    if available < min_seconds:
+        return [fallback]
+
+    window_len = min(sample_seconds, available)
+    stride = speaker_sample_window_stride_seconds(settings, segment, sample_seconds)
+    last_start = max(guarded_start, guarded_end - window_len)
+    clips: list[tuple[float, float]] = []
+    cursor = guarded_start
+    while cursor <= last_start + 0.01 and len(clips) < limit:
+        clips.append((round(cursor, 3), round(cursor + window_len, 3)))
+        cursor += stride
+
+    tail = (round(last_start, 3), round(last_start + window_len, 3))
+    if len(clips) < limit and tail not in clips:
+        if not clips or tail[0] - clips[-1][0] >= max(min_seconds, window_len * 0.5):
+            clips.append(tail)
+    return clips or [fallback]
+
+
+def speaker_sample_source_segments(settings: Settings, timeline: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
+    diarized = timeline.get("speaker_diarization_segments")
+    if isinstance(diarized, list):
+        segments: list[dict[str, Any]] = []
+        for index, segment in enumerate(diarized, start=1):
+            if not isinstance(segment, dict):
+                continue
+            start = parse_seconds(segment.get("start"))
+            end = parse_seconds(segment.get("end"))
+            speaker = normalize_speaker_label(segment.get("speaker"))
+            text = text_value(segment.get("text"), limit=2000)
+            if start is None or end is None or end <= start or not speaker or not text:
+                continue
+            item = dict(segment)
+            item["start"] = start
+            item["end"] = end
+            item["speaker"] = speaker
+            item.setdefault("speaker_local_label", normalize_speaker_label(segment.get("speaker_local_label")) or speaker)
+            item["speaker_label_source"] = "speaker_diarization_segments"
+            item["speaker_sample_source"] = "speaker_diarization_segments"
+            item["speaker_sample_source_index"] = index
+            if segment_is_speech_like(item):
+                segments.append(item)
+        if segments:
+            return segments, "speaker_diarization_segments"
+    if cfg_bool(settings.speaker_recognition, "sample_require_diarization_segments", False):
+        return [], "missing_speaker_diarization_segments"
+
+    speech_segments = timeline.get("speech_segments")
+    if isinstance(speech_segments, list):
+        return speech_segments, "speech_segments"
+    return [], "none"
+
+
+def speaker_sample_segment_score(segment: dict[str, Any]) -> float | None:
+    if not segment_is_speech_like(segment):
+        return None
+    start = parse_seconds(segment.get("start"))
+    end = parse_seconds(segment.get("end"))
+    duration = max(0.0, (end or 0.0) - (start or 0.0)) if start is not None and end is not None else 0.0
+    text = text_value(segment.get("text"), limit=800) or ""
+    score = min(duration, 4.0) + min(len(text) / 100.0, 2.0)
+    if duration < 0.7:
+        score -= 2.0
+    if duration > 5.0:
+        score -= (duration - 5.0) * 0.9
+    if duration > 12.0:
+        score -= 4.0
+    if len(text.strip()) < 8:
+        score -= 1.0
+    if text_repetition_ratio(text) > 0.65:
+        score -= 6.0
+    if speaker_sample_segment_mixed_speaker_risk(segment):
+        score -= 12.0
+    return score
+
+
+def speaker_sample_segment_mixed_speaker_risk(segment: dict[str, Any]) -> bool:
+    if segment_is_overlapping_speech(segment):
+        return True
+    start = parse_seconds(segment.get("start"))
+    end = parse_seconds(segment.get("end"))
+    duration = max(0.0, (end or 0.0) - (start or 0.0)) if start is not None and end is not None else 0.0
+    if duration < 4.0:
+        return False
+    text = text_value(segment.get("text"), limit=1200) or ""
+    if not text.strip():
+        return False
+    signals = transcript_turn_signals(text)
+    if duration >= 5.0 and signals["speaker_prefixes"] >= 2:
+        return True
+    if duration >= 5.0 and signals["questions"] >= 2 and signals["short_parts"] >= 2:
+        return True
+    if duration >= 6.0 and signals["quote_marks"] >= 2 and signals["questions"] >= 1:
+        return True
+    if duration >= 8.0 and signals["sentence_parts"] >= 6 and signals["short_parts"] >= 4 and signals["questions"] >= 1:
+        return True
+    return False
+
+
+def transcript_turn_signals(text: str) -> dict[str, int]:
+    cleaned = text.strip()
+    parts = [part.strip() for part in re.split(r"[。.!！？?…]+", cleaned) if part.strip()]
+    return {
+        "questions": len(re.findall(r"[?？]", cleaned)),
+        "quote_marks": len(re.findall(r"[\"'“”‘’「」『』]", cleaned)),
+        "speaker_prefixes": len(
+            re.findall(
+                r"(?:^|[\n。.!！？?])\s*(?:speaker\s*\d+|話者\s*\d+|発話者\s*\d+|说话人\s*\d+)[:：]",
+                cleaned,
+                re.IGNORECASE,
+            )
+        ),
+        "sentence_parts": len(parts),
+        "short_parts": sum(1 for part in parts if 1 <= len(re.sub(r"\s+", "", part)) <= 12),
+    }
 
 
 def sample_transcript_for_clip(segment: dict[str, Any], clip: tuple[float, float] | None) -> str | None:
@@ -3156,18 +4055,22 @@ def best_segment_for_sample(sample: Any, observation_metadata: Any) -> dict[str,
     for segment in segments:
         if not isinstance(segment, dict):
             continue
+        segment_quality = speaker_sample_segment_score(segment)
+        if segment_quality is None:
+            continue
         start = parse_seconds(segment.get("start"))
         end = parse_seconds(segment.get("end"))
         if start is None or end is None or end <= start:
             continue
         overlap = max(0.0, min(clip_end, end) - max(clip_start, start))
-        if overlap <= 0 and not (start <= clip_start <= end):
+        overlaps_current_window = overlap > 0 or (start <= clip_start <= end)
+        if not overlaps_current_window:
             continue
-        score = overlap
         segment_label = normalize_speaker_label(
             segment.get("speaker_local_label") or segment.get("local_label") or segment.get("speaker")
         )
         segment_scope = normalize_speaker_scope(segment.get("speaker_scope"))
+        score = min(overlap, 12.0) + (segment_quality * 10.0)
         if label and segment_label == label:
             score += 1000.0
         if scope and segment_scope == scope:

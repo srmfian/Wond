@@ -115,7 +115,9 @@ from .speaker_training import speaker_training_payload
 from .speakers import (
     speaker_confidence_summary,
     speaker_profiles_payload,
+    speaker_review_confidence_threshold,
     speaker_sample_payload,
+    speaker_threshold_config,
 )
 from .store import Observation, Store
 from .sync_server import cleanup_mobile_sync_storage, mobile_status_payload
@@ -1627,6 +1629,8 @@ def api_sources(settings: Settings) -> dict[str, Any]:
 
 
 def api_speakers(settings: Settings) -> dict[str, Any]:
+    thresholds = speaker_threshold_config(settings)
+    confidence_threshold = speaker_review_confidence_threshold(settings)
     store = Store(settings.db_path)
     try:
         speakers = []
@@ -1648,6 +1652,7 @@ def api_speakers(settings: Settings) -> dict[str, Any]:
                             row,
                             sample_count=int(stats["sample_count"] or 0),
                             embedding_count=embedding_count,
+                            confidence_threshold=confidence_threshold,
                         ),
                     },
                 )
@@ -1655,15 +1660,16 @@ def api_speakers(settings: Settings) -> dict[str, Any]:
         matches = [row_dict(row) for row in store.list_speaker_match_decisions(50)]
         samples = [
             item
-            for item in (speaker_sample_payload(row) for row in store.list_speaker_samples(None)[:300])
+            for item in (speaker_sample_payload(row) for row in store.list_speaker_samples(None))
             if (item.get("metadata") or {}).get("sample_role") != "mixed_parent_archived"
-        ][:240]
+        ]
         return {
             "ok": True,
             "speakers": speakers,
             "matches": matches,
-            "profiles": speaker_profiles_payload(store),
+            "profiles": speaker_profiles_payload(store, confidence_threshold=confidence_threshold),
             "samples": samples,
+            "config": thresholds,
         }
     finally:
         store.close()
@@ -1916,19 +1922,31 @@ def editable_settings_schema() -> list[dict[str, Any]]:
         editable_field("audio_analysis.summary_model", "string", "音频摘要模型"),
         editable_field("audio_analysis.delete_missing_audio_records", "bool", "清理缺失音频记录"),
         editable_field("audio_analysis.max_segments", "int", "最大音频片段", min=1, max=500),
+        editable_field("audio_preprocessing.quality_min_speech_seconds", "float", "样本最少语音秒数", min=0, max=16, unit="s"),
+        editable_field("audio_preprocessing.quality_min_speech_ratio", "float", "样本最少语音占比", min=0, max=1),
+        editable_field("audio_preprocessing.quality_noise_gate_enabled", "bool", "启用样本噪音门"),
+        editable_field("audio_preprocessing.quality_max_noise_floor_dbfs", "float", "最大噪音底", min=-80, max=0, unit="dBFS"),
+        editable_field("audio_preprocessing.quality_min_speech_noise_margin_db", "float", "语音噪音最小差值", min=0, max=40, unit="dB"),
         editable_field("speaker_recognition.enabled", "bool", "启用说话人识别"),
         editable_field("speaker_recognition.embedding_backend", "string", "Embedding backend"),
         editable_field("speaker_recognition.embedding_model", "string", "Embedding model"),
         editable_field("speaker_recognition.embedding_model_dir", "string", "Embedding 模型目录"),
         editable_field("speaker_recognition.embedding_sample_rate", "int", "Embedding 采样率", min=8000, max=96000),
-        editable_field("speaker_recognition.sample_seconds", "float", "样本秒数", min=1, max=120, unit="s"),
-        editable_field("speaker_recognition.sample_min_seconds", "float", "最短样本秒数", min=0.1, max=120, unit="s"),
+        editable_field("speaker_recognition.sample_seconds", "float", "样本秒数", min=1, max=16, unit="s"),
+        editable_field("speaker_recognition.sample_min_seconds", "float", "最短样本秒数", min=0.1, max=16, unit="s"),
+        editable_field("speaker_recognition.sample_stride_seconds", "float", "样本窗口步长", min=1, max=120, unit="s"),
+        editable_field("speaker_recognition.sample_fine_window_seconds", "float", "细切窗口秒数", min=0.5, max=16, unit="s"),
+        editable_field("speaker_recognition.sample_fine_stride_seconds", "float", "细切窗口步长", min=0.25, max=16, unit="s"),
+        editable_field("speaker_recognition.samples_per_speaker_per_observation", "int", "每段录音每人最多样本", min=1, max=200),
+        editable_field("speaker_recognition.sample_unlabeled_speech", "bool", "未标注语音也生成样本"),
+        editable_field("speaker_recognition.sample_require_diarization_segments", "bool", "只使用分离模型边界"),
         editable_field("speaker_recognition.sample_long_segment_anchor", "choice", "长段取样位置", options=["start", "center", "end"]),
         editable_field("speaker_recognition.sample_dir", "string", "样本目录"),
         editable_field("speaker_recognition.confirmed_profile_matching_enabled", "bool", "已确认 profile 匹配"),
         editable_field("speaker_recognition.confirmed_profile_max_prototypes", "int", "profile 原型上限", min=1, max=24),
         editable_field("speaker_recognition.confirmed_profile_min_samples", "int", "profile 最少样本", min=1, max=24),
         editable_field("speaker_recognition.auto_merge_threshold", "float", "自动合并阈值", min=0, max=1),
+        editable_field("speaker_recognition.auto_merge_max_merges", "int", "单次自动合并上限", min=1, max=5000),
         editable_field("speaker_recognition.candidate_threshold", "float", "候选阈值", min=0, max=1),
         editable_field("speaker_recognition.review_min_samples", "int", "审核最少样本", min=1, max=100),
         editable_field("speaker_recognition.review_min_observations", "int", "审核最少记录", min=1, max=100),
@@ -2468,6 +2486,21 @@ def action_speaker_detach_sample(settings: Settings, args: dict[str, Any]) -> li
     return command
 
 
+def action_speaker_split_sample(settings: Settings, args: dict[str, Any]) -> list[str]:
+    sample_id = parse_int(args.get("sample_id"))
+    if sample_id is None or sample_id <= 0:
+        raise ValueError("invalid_sample_id")
+    cuts = str(args.get("cuts") or args.get("cut_points") or "").strip()
+    if not cuts:
+        raise ValueError("missing_cut_points")
+    command = [sys_executable(), "-m", "wond", "speakers", "split-sample", str(sample_id), "--cuts", cuts]
+    if bool(args.get("keep_speaker")):
+        command.append("--keep-speaker")
+    if bool(args.get("keep_parent_active")):
+        command.append("--keep-parent-active")
+    return command
+
+
 def action_speaker_refresh_sample_confidence(settings: Settings, args: dict[str, Any]) -> list[str]:
     raw_ids = args.get("speaker_ids") or args.get("speaker_id") or args.get("ids")
     speaker_ids = speaker_id_list(raw_ids) if raw_ids else []
@@ -2586,6 +2619,7 @@ ACTIONS = {
     "speaker_delete": action_speaker_delete,
     "speaker_delete_many": action_speaker_delete_many,
     "speaker_detach_sample": action_speaker_detach_sample,
+    "speaker_split_sample": action_speaker_split_sample,
     "speaker_refresh_sample_confidence": action_speaker_refresh_sample_confidence,
     "speaker_repair_embeddings": action_speaker_repair_embeddings,
     "speaker_repair_sample_clips": action_speaker_repair_sample_clips,
@@ -2618,6 +2652,7 @@ ACTION_TIMEOUTS = {
     "speaker_delete": 60,
     "speaker_delete_many": 120,
     "speaker_detach_sample": 120,
+    "speaker_split_sample": 180,
     "speaker_refresh_sample_confidence": 300,
     "speaker_repair_embeddings": 1800,
     "speaker_repair_sample_clips": 1800,

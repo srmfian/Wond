@@ -92,6 +92,92 @@ class LocalTranscriptionBackendTests(unittest.TestCase):
         self.assertEqual(result.metadata["local_speaker_diarization"]["backend"], "vibevoice_mlx")
         self.assertEqual(result.metadata["local_speaker_diarization"]["status"], "ok")
 
+    def test_enabled_diarization_still_prepares_and_runs_speaker_pass(self):
+        settings = SimpleNamespace(
+            local_ai={"speaker_diarization_enabled": True},
+            openai_analysis={},
+            audio_analysis={},
+        )
+        prepared_stages = []
+        fast = TranscriptionResult(
+            text="hello",
+            segments=[{"start": 0.0, "end": 2.0, "speaker": None, "text": "hello"}],
+            duration_seconds=2.0,
+        )
+        timeline = {
+            "duration_seconds": 2.0,
+            "speech_segments": [{"start": 0.0, "end": 2.0, "speaker": None, "text": "hello"}],
+        }
+
+        def fake_prepare(_settings, _path, *, stage):
+            prepared_stages.append(stage)
+            return SimpleNamespace(
+                path=Path(f"{stage}.wav"),
+                metadata={"stage": stage, "status": "enhanced"},
+                close=lambda: None,
+            )
+
+        with (
+            patch("wond.openai_analysis.assert_size"),
+            patch("wond.openai_analysis.prepare_audio_for_stage", side_effect=fake_prepare),
+            patch("wond.openai_analysis.transcribe_audio_with_local_ai", return_value=fast),
+            patch("wond.openai_analysis.build_audio_timeline", return_value=timeline),
+            patch(
+                "wond.openai_analysis.run_speaker_diarization",
+                return_value={"enabled": True, "status": "ok"},
+            ) as diarization,
+            patch("wond.openai_analysis.summarize_text_with_local_ai", return_value="summary"),
+        ):
+            result = analyze_audio_with_local_ai(settings, Path("sample.m4a"))
+
+        self.assertEqual(prepared_stages, ["asr", "diarization"])
+        diarization.assert_called_once()
+        self.assertEqual(result.metadata["audio_preprocessing"]["diarization"]["status"], "enhanced")
+        self.assertEqual(result.metadata["local_speaker_diarization"]["status"], "ok")
+
+    def test_disabled_diarization_does_not_prepare_or_run_speaker_pass(self):
+        settings = SimpleNamespace(
+            local_ai={"speaker_diarization_enabled": False},
+            openai_analysis={},
+            audio_analysis={},
+        )
+        prepared_stages = []
+        fast = TranscriptionResult(
+            text="hello",
+            segments=[{"start": 0.0, "end": 2.0, "speaker": None, "text": "hello"}],
+            duration_seconds=2.0,
+        )
+        timeline = {
+            "duration_seconds": 2.0,
+            "speech_segments": [{"start": 0.0, "end": 2.0, "speaker": None, "text": "hello"}],
+        }
+
+        def fake_prepare(_settings, _path, *, stage):
+            prepared_stages.append(stage)
+            return SimpleNamespace(
+                path=Path(f"{stage}.wav"),
+                metadata={"stage": stage, "status": "enhanced"},
+                close=lambda: None,
+            )
+
+        with (
+            patch("wond.openai_analysis.assert_size"),
+            patch("wond.openai_analysis.prepare_audio_for_stage", side_effect=fake_prepare),
+            patch("wond.openai_analysis.transcribe_audio_with_local_ai", return_value=fast),
+            patch("wond.openai_analysis.build_audio_timeline", return_value=timeline),
+            patch("wond.openai_analysis.run_speaker_diarization") as diarization,
+            patch("wond.openai_analysis.summarize_text_with_local_ai", return_value="summary"),
+        ):
+            result = analyze_audio_with_local_ai(settings, Path("sample.m4a"))
+
+        self.assertEqual(prepared_stages, ["asr"])
+        diarization.assert_not_called()
+        self.assertEqual(result.metadata["audio_preprocessing"]["diarization"]["status"], "disabled")
+        self.assertEqual(
+            result.metadata["audio_preprocessing"]["diarization"]["reason"],
+            "speaker_diarization_disabled",
+        )
+
     def test_diarization_failure_does_not_fail_fast_asr_result(self):
         settings = SimpleNamespace(
             local_ai={

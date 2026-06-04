@@ -924,6 +924,8 @@ const translationRows = [
   ['分析 10 条','Analyze 10','10件分析','10개 분석'],
   ['分析 20 条','Analyze 20','20件分析','20개 분석'],
   ['分析 50 条','Analyze 50','50件分析','50개 분석'],
+  ['手动切分样本','Manual split sample','サンプルを手動分割','샘플 수동 분할'],
+  ['分离成新说话人','Detach to new speaker','新しい話者に分離','새 화자로 분리'],
   ['查找','Find','検索','찾기'],
   ['搜索','Search','検索','검색'],
   ['底层时间线','Raw timeline','生タイムライン','원본 타임라인'],
@@ -1202,7 +1204,7 @@ const translationRows = [
   ['把这条样本从当前说话人中分离出来，单独新建一个 Voice。','Detach this sample from the current speaker and create a new Voice.','このサンプルを現在の話者から分離し、新しいVoiceを作成します。','이 샘플을 현재 화자에서 분리하고 새 Voice를 만듭니다.'],
   ['重新计算说话人的 embedding 聚类一致性，并刷新每条样本相对当前聚类的一致性。','Recalculate speaker embedding cluster consistency and refresh each sample against the current cluster.','話者embeddingクラスタ一致性を再計算し、各サンプルの現在クラスタへの一致性を更新します。','화자 embedding 클러스터 일관성을 다시 계산하고 각 샘플의 현재 클러스터 일관성을 새로고침합니다.'],
   ['按当前裁剪策略重裁筛选出来的说话人样本，并重新计算变更样本的 embedding。','Re-cut filtered speaker samples with the current trimming policy and recompute embeddings for changed samples.','現在の裁剪ポリシーで絞り込んだ話者サンプルを再裁剪し、変更サンプルのembeddingを再計算します。','현재 자르기 정책으로 필터된 화자 샘플을 다시 자르고 변경된 샘플의 embedding을 재계산합니다.'],
-  ['按 0.68 自动合并相似声音，并隐藏低相似未命名 Voice。','Automatically merge similar voices at 0.68 and hide low-similarity unnamed Voices.','0.68で似た声を自動統合し、低類似の未命名Voiceを非表示にします。','0.68 기준으로 유사 음성을 자동 병합하고 낮은 유사도의 미명명 Voice를 숨깁니다.'],
+  ['按当前配置阈值自动合并相似声音，并隐藏低相似未命名 Voice。','Automatically merge similar voices at the configured threshold and hide low-similarity unnamed Voices.','現在の設定しきい値で似た声を自動統合し、低類似の未命名Voiceを非表示にします。','현재 설정 임계값으로 유사 음성을 자동 병합하고 낮은 유사도의 미명명 Voice를 숨깁니다.'],
   ['确认这些说话人整理结果正确，后续自动整理不会主动隐藏它们。','Confirm these speaker cleanup results so later auto cleanup will not hide them.','これらの話者整理結果を確認し、後続の自動整理で非表示にされないようにします。','이 화자 정리 결과를 확인하여 이후 자동 정리가 숨기지 않도록 합니다.'],
   ['把低相似隐藏 Voice 放回人工复查列表。','Return hidden low-similarity Voices to the manual review list.','低類似で非表示になったVoiceを手動レビュー一覧へ戻します。','낮은 유사도로 숨겨진 Voice를 수동 검토 목록으로 되돌립니다.'],
   ['扫描监控路径里的新文件，并用本地分析流程处理。','Scan watch paths for new files and process them with the local analysis flow.','監視パス内の新規ファイルをスキャンし、ローカル分析フローで処理します。','감시 경로의 새 파일을 스캔하고 로컬 분석 흐름으로 처리합니다.'],
@@ -1280,7 +1282,7 @@ const translationRows = [
   ['已填入恢复路径','Restore path filled in','復元パスを入力しました','복원 경로 입력됨'],
   ['执行自动整理会合并相似 Voice 并隐藏低相似未命名 Voice，继续？','Auto cleanup will merge similar Voices and hide low-similarity unnamed Voices. Continue?','自動整理は似たVoiceを統合し、低類似の未命名Voiceを非表示にします。続行しますか？','자동 정리는 유사 Voice를 병합하고 낮은 유사도의 미명명 Voice를 숨깁니다. 계속할까요?'],
   ['跑一轮训练会补齐缺失 embedding、重算样本一致性并刷新代表样本；不会自动合并。继续？','One training cycle will fill missing embeddings, recalculate sample consistency, and refresh representative samples; it will not auto-merge. Continue?','1回の訓練で不足embeddingを補完し、サンプル一致性を再計算し、代表サンプルを更新します。自動統合はしません。続行しますか？','한 번의 훈련은 누락 embedding 보완, 샘플 일관성 재계산, 대표 샘플 새로고침을 수행합니다. 자동 병합은 하지 않습니다. 계속할까요?'],
-  ['自动整理相似声音：按 0.68 自动合并相似声音，并把低相似未命名 Voice 隐藏到单独筛选里？','Auto-clean similar voices: merge similar voices at 0.68 and move low-similarity unnamed Voices into a separate hidden filter?','類似音声の自動整理: 0.68で類似音声を統合し、低類似の未命名Voiceを別の非表示フィルタへ移しますか？','유사 음성 자동 정리: 0.68 기준으로 병합하고 낮은 유사도의 미명명 Voice를 별도 숨김 필터로 이동할까요?'],
+  ['自动整理相似声音：按当前配置阈值自动合并相似声音，并把低相似未命名 Voice 隐藏到单独筛选里？','Auto-clean similar voices: merge similar voices at the configured threshold and move low-similarity unnamed Voices into a separate hidden filter?','類似音声の自動整理: 現在の設定しきい値で類似音声を統合し、低類似の未命名Voiceを別の非表示フィルタへ移しますか？','유사 음성 자동 정리: 현재 설정 임계값으로 병합하고 낮은 유사도의 미명명 Voice를 별도 숨김 필터로 이동할까요?'],
   ['为已有样本补齐缺失的 speaker embedding？这会调用本地 SpeechBrain 模型，可能需要一点时间。','Fill missing speaker embeddings for existing samples? This calls the local SpeechBrain model and may take some time.','既存サンプルの不足speaker embeddingを補完しますか？ローカルSpeechBrainモデルを呼び出すため少し時間がかかる場合があります。','기존 샘플의 누락 speaker embedding을 보완할까요? 로컬 SpeechBrain 모델을 호출하므로 시간이 걸릴 수 있습니다.'],
   ['把隐藏队列里已经积累足够证据的 Voice 放回人工复查？','Return hidden Voices with enough accumulated evidence to manual review?','十分な証拠が蓄積した非表示Voiceを手動レビューへ戻しますか？','충분한 증거가 쌓인 숨겨진 Voice를 수동 검토로 되돌릴까요?'],
   ['永久删除已到期的回收箱文件？','Permanently delete expired recycle-bin files?','期限切れのごみ箱ファイルを完全削除しますか？','만료된 휴지통 파일을 영구 삭제할까요?'],
@@ -1744,7 +1746,7 @@ const actionTips = {
   speaker_detach_sample: '把这条样本从当前说话人中分离出来，单独新建一个 Voice。',
   speaker_refresh_sample_confidence: '重新计算说话人的 embedding 聚类一致性，并刷新每条样本相对当前聚类的一致性。',
   speaker_repair_sample_clips: '按当前裁剪策略重裁筛选出来的说话人样本，并重新计算变更样本的 embedding。',
-  speaker_auto_organize: '按 0.68 自动合并相似声音，并隐藏低相似未命名 Voice。',
+  speaker_auto_organize: '按当前配置阈值自动合并相似声音，并隐藏低相似未命名 Voice。',
   speaker_confirm: '确认这些说话人整理结果正确，后续自动整理不会主动隐藏它们。',
   speaker_unhide: '把低相似隐藏 Voice 放回人工复查列表。',
   analyze_new_files: '扫描监控路径里的新文件，并用本地分析流程处理。',
@@ -3807,6 +3809,29 @@ function formatScore(value){
   const n = Number(value);
   return Number.isFinite(n) ? n.toFixed(3) : (value ?? '-');
 }
+function normalizeSpeakerThresholds(raw={}){
+  const autoMerge = Number(raw.auto_merge_threshold ?? raw.autoMergeThreshold);
+  const candidate = Number(raw.candidate_threshold ?? raw.candidateThreshold);
+  const review = Number(raw.review_min_confidence ?? raw.reviewMinConfidence);
+  return {
+    auto_merge_threshold: Number.isFinite(autoMerge) && autoMerge > 0 && autoMerge <= 1 ? autoMerge : 0.68,
+    candidate_threshold: Number.isFinite(candidate) && candidate > 0 && candidate <= 1 ? candidate : 0.68,
+    review_min_confidence: Number.isFinite(review) && review > 0 && review <= 1 ? review : 0.90,
+  };
+}
+function updateSpeakerThresholds(raw={}){
+  state.speakerThresholds = normalizeSpeakerThresholds(raw);
+  return state.speakerThresholds;
+}
+function speakerThresholds(){
+  return normalizeSpeakerThresholds(state.speakerThresholds || {});
+}
+function speakerAutoMergeThreshold(){
+  return speakerThresholds().auto_merge_threshold;
+}
+function speakerLowConfidenceThreshold(){
+  return speakerThresholds().candidate_threshold;
+}
 function shortModelName(value){
   const text = String(value || '');
   return text.endsWith(':latest') ? text.slice(0, -7) : text;
@@ -4296,9 +4321,10 @@ function sourceDistribution(rows){
   return `<div class="timeline-breakdown">${sorted.map(source => `<div class="timeline-breakdown-row" onclick="setSourceView('${escAttr(sourceGroup(source.source))}')"><span>${esc(source.source)}</span><span class="queue-value">${esc(sourceTotalCount(source))}</span></div>`).join('')}</div>`;
 }
 async function speakerTraining(){
-  const buttons = `<button class="btn primary" onclick="runSpeakerTrainingCycle()">跑一轮训练</button><button class="btn" onclick="runTrainingPayloadAction({name:'speaker_auto_organize',args:{threshold:0.68}})">自动整理后复查</button><button class="btn" onclick="speakerTraining()">刷新</button>`;
+  const buttons = `<button class="btn primary" onclick="runSpeakerTrainingCycle()">跑一轮训练</button><button class="btn" onclick="runTrainingPayloadAction({name:'speaker_auto_organize',args:{}})">自动整理后复查</button><button class="btn" onclick="speakerTraining()">刷新</button>`;
   setHeader('Speaker 训练闭环','读取中...', buttons);
   const j = await api('/api/speaker-training');
+  updateSpeakerThresholds(j.model || {});
   const summary = j.summary || {};
   const rows = filterTrainingSpeakers(j.speakers || []);
   const sampleRows = filterTrainingSamples(j.sample_queue || []);
@@ -4387,7 +4413,7 @@ function filterTrainingSamples(rows){
     if(view === 'all') return true;
     if(view === 'samples') return issues.length;
     return issues.length || row.recommended_action;
-  }).slice(0, 80);
+  }).slice(0, 40);
 }
 function trainingSpeakerList(rows){
   if(!(rows || []).length) return '<div class="empty-state">当前筛选没有需要训练的 speaker</div>';
@@ -4422,8 +4448,8 @@ function trainingSampleCard(row){
     <div class="speaker-match-row"><div><b>${esc(row.speaker_name || row.speaker_id)}</b><div class="item-meta">sample ${esc(row.id || '-')} · ${esc(formatSecondsRange(row.start_seconds, row.end_seconds))} · ${esc(trainingSampleConfidence(row))}</div></div>${status(row.representative ? '代表' : 'sample')}</div>
     <div class="speaker-sample-tags">${(row.issues || []).map(issue => `<span class="evidence-chip">${esc(trainingIssueLabel(issue))}</span>`).join('') || '<span class="evidence-chip">ready</span>'}</div>
     <div class="speaker-transcript">${esc(row.transcript || '')}</div>
-    ${row.sample_path ? `<audio controls preload="metadata"><source src="/api/speaker-sample/${escAttr(row.id)}" type="audio/mp4"></audio>` : ''}
-    <div class="training-actions">${actionButton}<button class="btn" onclick="openTrainingSpeakerSamples('${escAttr(row.speaker_id)}')">查看相关</button></div>
+    ${row.sample_path ? `<audio controls preload="none"><source src="/api/speaker-sample/${escAttr(row.id)}" type="audio/mp4"></audio>` : ''}
+    <div class="training-actions">${actionButton}<button class="btn" onclick="splitSpeakerSample('${escAttr(row.id)}')">手动切分样本</button><button class="btn" onclick="openTrainingSpeakerSamples('${escAttr(row.speaker_id)}')">查看相关</button></div>
   </div>`;
 }
 function trainingSampleCardClass(row){
@@ -4456,7 +4482,7 @@ async function runTrainingAction(button){
 }
 async function runTrainingPayloadAction(payload){
   if(!payload.name) return;
-  if(payload.name === 'speaker_auto_organize' && !askConfirm('执行自动整理会合并相似 Voice 并隐藏低相似未命名 Voice，继续？')) return;
+  if(payload.name === 'speaker_auto_organize' && !askConfirm(`执行自动整理会按当前配置阈值 ${formatScore(speakerAutoMergeThreshold())} 合并相似 Voice 并隐藏低相似未命名 Voice，继续？`)) return;
   await action(payload.name, payload.args || {});
 }
 async function runSpeakerTrainingCycle(){
@@ -4490,6 +4516,7 @@ function openTrainingSpeakerSamples(id){
 async function speakers(){
   setHeader('说话人','自动整理、人工确认、样本快速筛选', `<button class="btn primary" onclick="speakers()">刷新</button>`);
   const [j, quality] = await Promise.all([api('/api/speakers'), api('/api/speaker-quality?view=needs_work')]);
+  const thresholds = updateSpeakerThresholds(((j.config || {}).speaker_recognition || j.config || {}));
   const speakerRows = j.speakers || [];
   const sampleRows = j.samples || [];
   const matchRows = j.matches || [];
@@ -4520,7 +4547,7 @@ async function speakers(){
   const confirmed = speakerRows.filter(s => speakerReviewStatus(s) === 'confirmed').length;
   const totalSamples = speakerRows.reduce((sum, s) => sum + Number(s.sample_count || 0), 0);
   const avgConfidence = activeRows.length ? Math.round((activeRows.reduce((sum, s) => sum + Number(s.confidence || 0), 0) / activeRows.length) * 100) : 0;
-  $('subtitle').textContent = `${activeRows.length} 活跃 · ${pendingAuto} 自动整理待确认 · ${hidden} 已隐藏 · ${totalSamples} 样本`;
+  $('subtitle').textContent = `${activeRows.length} 活跃 · ${pendingAuto} 自动整理待确认 · ${hidden} 已隐藏 · ${totalSamples} 样本 · 自动整理阈值 ${formatScore(thresholds.auto_merge_threshold)}`;
   $('view').innerHTML = `<div class="speakers-main">
     <div class="speaker-content">
       <div class="card speaker-workbench">
@@ -4534,6 +4561,7 @@ async function speakers(){
           ${speakerKpi('活跃说话人', activeRows.length, `${confirmed} 已确认`)}
           ${speakerKpi('自动整理待确认', pendingAuto, '合并后需确认')}
           ${speakerKpi('隐藏低相似', hidden, '默认不再打扰')}
+          ${speakerKpi('自动整理阈值', formatScore(thresholds.auto_merge_threshold), `低一致性 ${formatScore(thresholds.candidate_threshold)}`)}
           ${speakerKpi('缺 embedding', missingEmbeddings, '样本无法匹配')}
           ${speakerKpi('代表样本', representativeSamples, '人物档案锚点')}
         </div>
@@ -4585,7 +4613,7 @@ async function speakers(){
             <select id="speakerSampleSort" onchange="setSpeakerSampleSort(this.value)">${speakerSampleSortOptions()}</select>
             <button class="btn primary" onclick="applySpeakerSampleSearch()">筛选</button>
           </div>
-          <div class="speaker-sample-list expanded">${speakerSampleList(focusedSamples, {limit: 80, expanded: true})}</div>
+          <div class="speaker-sample-list expanded">${speakerSampleList(focusedSamples, {limit: 40, expanded: true})}</div>
         </section>
       </div>
     </div>
@@ -4690,7 +4718,7 @@ function speakerNeedsReview(s){
 function speakerHasLowConfidence(s){
   if(speakerReviewStatus(s) === 'confirmed') return false;
   const confidence = Number(s.confidence);
-  return Number.isFinite(confidence) && confidence > 0 && confidence < 0.68;
+  return Number.isFinite(confidence) && confidence > 0 && confidence < speakerLowConfidenceThreshold();
 }
 function sampleConfidenceValue(sample){
   const n = Number((sample.metadata || {}).sample_confidence);
@@ -4698,7 +4726,7 @@ function sampleConfidenceValue(sample){
 }
 function sampleHasLowConfidence(sample){
   const confidence = sampleConfidenceValue(sample);
-  return confidence !== null && confidence > 0 && confidence < 0.68;
+  return confidence !== null && confidence > 0 && confidence < speakerLowConfidenceThreshold();
 }
 function sampleHasError(sample){
   const metadata = sample.metadata || {};
@@ -5138,8 +5166,9 @@ function renameSelectedSpeaker(){
   action('speaker_rename',{speaker_id:speakerId,display_name:displayName});
 }
 function autoOrganizeSpeakers(){
-  if(askConfirm('自动整理相似声音：按 0.68 自动合并相似声音，并把低相似未命名 Voice 隐藏到单独筛选里？')){
-    action('speaker_auto_organize',{threshold:0.68});
+  const threshold = speakerAutoMergeThreshold();
+  if(askConfirm(`自动整理相似声音：按当前配置阈值 ${formatScore(threshold)} 自动合并相似声音，并把低相似未命名 Voice 隐藏到单独筛选里？`)){
+    action('speaker_auto_organize',{});
   }
 }
 function confirmSelectedSpeakers(){
@@ -5327,8 +5356,8 @@ function speakerSampleList(rows, options={}){
     <div class="speaker-match-row"><div><b>${esc(sample.speaker_name || sample.speaker_id)}</b><div class="item-meta">sample ${esc(sample.id || '-')} · ${esc(formatSecondsRange(sample.start_seconds, sample.end_seconds))} · obs ${esc(sample.observation_id || '-')}${sampleConfidence ? ` · ${sampleConfidence}` : ''}${esc(rep)}</div></div>${status((sample.metadata || {}).status || 'info')}</div>
     ${badges ? `<div class="speaker-sample-tags">${badges}</div>` : ''}
     <div class="speaker-transcript">${esc(sample.transcript || '')}</div>
-    ${sample.sample_path ? `<audio controls preload="metadata"><source src="/api/speaker-sample/${escAttr(sample.id)}" type="audio/mp4"></audio>` : ''}
-    <div class="speaker-sample-actions"><button class="btn" onclick="detachSpeakerSample('${escAttr(sample.id)}')">分离成新说话人</button></div>
+    ${sample.sample_path ? `<audio controls preload="none"><source src="/api/speaker-sample/${escAttr(sample.id)}" type="audio/mp4"></audio>` : ''}
+    <div class="speaker-sample-actions"><button class="btn" onclick="splitSpeakerSample('${escAttr(sample.id)}')">手动切分样本</button><button class="btn" onclick="detachSpeakerSample('${escAttr(sample.id)}')">分离成新说话人</button></div>
   </div>`;
   }).join('')}${more}`;
   return options.expanded ? body : `<div class="speaker-sample-list">${body}</div>`;
@@ -5351,8 +5380,10 @@ function speakerSampleBadges(sample){
   if(sampleMissingEmbedding(sample)) badges.push('<span class="status skipped">缺 embedding</span>');
   if(sampleIsRepresentative(sample)) badges.push('<span class="status accepted">代表样本</span>');
   if(sampleIsDetached(sample)) badges.push('<span class="status info">已分离</span>');
+  if(metadata.sample_role === 'manual_split_child') badges.push('<span class="status info">切分子样本</span>');
+  if(metadata.sample_role === 'mixed_parent_archived') badges.push('<span class="status skipped">已归档母样本</span>');
   if(sample.sample_path) badges.push('<span class="status observation">可播放</span>');
-  if(metadata.sample_role && !sampleIsDetached(sample)) badges.push(`<span class="status info">${esc(metadata.sample_role)}</span>`);
+  if(metadata.sample_role && !sampleIsDetached(sample) && !['manual_split_child', 'mixed_parent_archived'].includes(metadata.sample_role)) badges.push(`<span class="status info">${esc(metadata.sample_role)}</span>`);
   return badges.join('');
 }
 function detachSpeakerSample(sampleId){
@@ -5362,6 +5393,17 @@ function detachSpeakerSample(sampleId){
     action('speaker_detach_sample', {sample_id: sampleId});
   }
 }
+function splitSpeakerSample(sampleId){
+  const sample = (state.speakerSamples || []).find(row => String(row.id) === String(sampleId));
+  const duration = sample ? (Number(sample.end_seconds) - Number(sample.start_seconds)) : NaN;
+  const midpoint = Number.isFinite(duration) && duration > 1 ? (duration / 2).toFixed(2) : '';
+  const cuts = prompt('输入切分点，单位为当前 sample 内的秒数。多个点用逗号分隔。', midpoint);
+  if(!cuts || !cuts.trim()) return;
+  if(!askConfirm(`按 ${cuts} 秒切分这个 sample？每段会先新建 Voice，原 sample 会归档。`)) return;
+  action('speaker_split_sample', {sample_id: sampleId, cuts});
+}
+window.detachSpeakerSample = detachSpeakerSample;
+window.splitSpeakerSample = splitSpeakerSample;
 function speakerMatchList(rows){
   if(!(rows || []).length) return '<div class="empty-state">No match decisions</div>';
   return `<div class="speaker-match-list">${rows.slice(0, 12).map(match => `<div class="speaker-match-card">

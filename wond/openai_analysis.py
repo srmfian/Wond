@@ -319,16 +319,16 @@ def analyze_audio_with_local_ai(
     max_audio_mb = float(settings.local_ai.get("max_audio_mb", 1024))
     assert_size(path, max_audio_mb)
     asr_audio = prepare_audio_for_stage(settings, path, stage="asr")
-    diarization_audio = prepare_audio_for_stage(settings, path, stage="diarization")
+    diarization_audio = None
     try:
         transcription = transcribe_audio_with_local_ai(settings, asr_audio.path)
         transcript = transcription.text
         audio_timeline = build_audio_timeline(path, transcription)
+        audio_preprocessing = {
+            "asr": asr_audio.metadata,
+        }
         transcription_metadata = {
-            "audio_preprocessing": {
-                "asr": asr_audio.metadata,
-                "diarization": diarization_audio.metadata,
-            }
+            "audio_preprocessing": audio_preprocessing
         }
         if isinstance(transcription.raw, dict) and transcription.raw.get("vad_presegmented"):
             transcription_metadata["local_transcription_vad"] = {
@@ -336,9 +336,19 @@ def analyze_audio_with_local_ai(
                 "speech_seconds": transcription.raw.get("speech_seconds"),
                 "chunk_count": len(transcription.raw.get("chunks") or []),
             }
-        diarization_metadata = run_speaker_diarization(settings, diarization_audio.path, audio_timeline)
-        if diarization_metadata:
-            transcription_metadata["local_speaker_diarization"] = diarization_metadata
+        if local_ai_bool(settings, "speaker_diarization_enabled", False):
+            diarization_audio = prepare_audio_for_stage(settings, path, stage="diarization")
+            audio_preprocessing["diarization"] = diarization_audio.metadata
+            diarization_metadata = run_speaker_diarization(settings, diarization_audio.path, audio_timeline)
+            if diarization_metadata:
+                transcription_metadata["local_speaker_diarization"] = diarization_metadata
+        else:
+            audio_preprocessing["diarization"] = {
+                "stage": "diarization",
+                "status": "disabled",
+                "reason": "speaker_diarization_disabled",
+                "path": str(path),
+            }
         summary = summarize_text_with_local_ai(
             settings,
             audio_analysis_context(transcript, audio_timeline),
@@ -362,7 +372,8 @@ def analyze_audio_with_local_ai(
         )
     finally:
         asr_audio.close()
-        diarization_audio.close()
+        if diarization_audio is not None:
+            diarization_audio.close()
 
 
 def analyze_image_with_local_ai(settings: Settings, path: Path, *, prompt: str | None = None) -> str:
@@ -530,7 +541,7 @@ def run_speaker_diarization(settings: Settings, path: Path, audio_timeline: dict
             "chunk_count": len(result.raw.get("chunks") or []),
         }
     if diarized_segments:
-        audio_timeline["speaker_diarization_segments"] = diarized_segments[:100]
+        audio_timeline["speaker_diarization_segments"] = diarized_segments[:1000]
     return metadata
 
 

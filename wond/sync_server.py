@@ -60,6 +60,13 @@ class MobileSyncCleanupResult:
         return [self.summary(dry_run=dry_run), *self.messages]
 
 
+@dataclass(frozen=True)
+class AuthResult:
+    ok: bool
+    status: HTTPStatus = HTTPStatus.UNAUTHORIZED
+    error: str = "unauthorized"
+
+
 def run_sync_server(settings: Settings, host: str | None = None, port: int | None = None) -> None:
     sync_config = settings.mobile_sync
     bind_host = host or str(sync_config.get("host") or "0.0.0.0")
@@ -69,7 +76,7 @@ def run_sync_server(settings: Settings, host: str | None = None, port: int | Non
     token = str(sync_config.get("token") or "")
     print(f"Sync server: http://{bind_host}:{actual_port}/upload", flush=True)
     if not token:
-        print("Warning: mobile_sync.token is empty; local network uploads are accepted without a token.", flush=True)
+        print("Warning: mobile_sync.token is empty; uploads and authenticated API calls will be rejected.", flush=True)
     try:
         server.serve_forever()
     finally:
@@ -135,11 +142,19 @@ def make_handler(settings: Settings):
             if length > max_bytes:
                 self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {"ok": False, "error": "upload_too_large"})
                 return
+            encrypted = self.headers.get("X-Wond-Encrypted") == "AESGCM-v1"
+            auth = upload_auth_preflight(settings, self.headers, encrypted)
+            if not auth.ok:
+                self.send_auth_error(auth)
+                return
+            upload_path: Path | None = None
+            zip_path: Path | None = None
             try:
-                encrypted = self.headers.get("X-Wond-Encrypted") == "AESGCM-v1"
                 upload_path = save_upload_stream(settings, self.rfile, length, self.headers.get("X-Filename"), encrypted)
-                if not verify_upload_auth(settings, upload_path, self.headers, encrypted):
-                    self.send_json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "unauthorized"})
+                auth = verify_upload_auth(settings, upload_path, self.headers, encrypted)
+                if not auth.ok:
+                    cleanup_upload_artifacts(settings, upload_path)
+                    self.send_auth_error(auth)
                     return
                 zip_path = decrypt_upload_if_needed(settings, upload_path, encrypted)
                 result = import_upload_zip(settings, zip_path)
@@ -160,6 +175,7 @@ def make_handler(settings: Settings):
                     },
                 )
             except Exception as exc:
+                cleanup_upload_artifacts(settings, upload_path, zip_path)
                 self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"ok": False, "error": str(exc)})
 
         def handle_ask(self) -> None:
@@ -265,6 +281,9 @@ def make_handler(settings: Settings):
             self.end_headers()
             self.wfile.write(data)
 
+        def send_auth_error(self, result: AuthResult) -> None:
+            self.send_json(result.status, {"ok": False, "error": result.error})
+
         def log_message(self, format: str, *args) -> None:
             print(f"{self.address_string()} - {format % args}")
 
@@ -343,13 +362,17 @@ def save_upload_stream(settings: Settings, source, length: int, filename: str | 
         safe = f"{safe}{wanted_suffix}"
     path = inbox / unique_name(inbox, safe)
     remaining = length
-    with path.open("wb") as out:
-        while remaining > 0:
-            chunk = source.read(min(1024 * 1024, remaining))
-            if not chunk:
-                raise ValueError("upload ended before Content-Length bytes were received")
-            out.write(chunk)
-            remaining -= len(chunk)
+    try:
+        with path.open("wb") as out:
+            while remaining > 0:
+                chunk = source.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    raise ValueError("upload ended before Content-Length bytes were received")
+                out.write(chunk)
+                remaining -= len(chunk)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
     return path
 
 
@@ -367,32 +390,53 @@ def decrypt_upload_if_needed(settings: Settings, upload_path: Path, encrypted: b
     ciphertext = base64_decode(payload.get("ciphertext"))
     plaintext = decrypt_aes_gcm(token, salt, nonce, ciphertext)
     zip_path = upload_path.with_suffix(".zip")
-    zip_path.write_bytes(plaintext)
+    try:
+        zip_path.write_bytes(plaintext)
+    except Exception:
+        zip_path.unlink(missing_ok=True)
+        raise
     return zip_path
 
 
-def verify_upload_auth(settings: Settings, upload_path: Path, headers, encrypted: bool) -> bool:
+def upload_auth_preflight(settings: Settings, headers, encrypted: bool) -> AuthResult:
     token = str(settings.mobile_sync.get("token") or "")
     if not token:
-        return not encrypted
+        return AuthResult(False, HTTPStatus.SERVICE_UNAVAILABLE, "sync_token_required")
+    if mobile_sync_bool(settings, "require_encrypted_uploads", True) and not encrypted:
+        return AuthResult(False, HTTPStatus.BAD_REQUEST, "encrypted_upload_required")
     timestamp = headers.get("X-Wond-Timestamp")
     body_hash = headers.get("X-Wond-Body-SHA256")
     signature = headers.get("X-Wond-Signature")
     if not timestamp or not body_hash or not signature:
-        return False
+        return AuthResult(False)
     try:
         sent_at = int(timestamp)
     except ValueError:
-        return False
+        return AuthResult(False)
     max_skew_seconds = 900
     if abs(int(time.time()) - sent_at) > max_skew_seconds:
-        return False
+        return AuthResult(False)
+    if not is_sha256_hex(body_hash):
+        return AuthResult(False)
+    return AuthResult(True, HTTPStatus.OK, "")
+
+
+def verify_upload_auth(settings: Settings, upload_path: Path, headers, encrypted: bool) -> AuthResult:
+    preflight = upload_auth_preflight(settings, headers, encrypted)
+    if not preflight.ok:
+        return preflight
+    token = str(settings.mobile_sync.get("token") or "")
+    timestamp = str(headers.get("X-Wond-Timestamp"))
+    body_hash = str(headers.get("X-Wond-Body-SHA256"))
+    signature = str(headers.get("X-Wond-Signature"))
     actual_hash = sha256_file(upload_path)
     if not hmac.compare_digest(actual_hash, body_hash):
-        return False
+        return AuthResult(False)
     message = f"{timestamp}\n{body_hash}".encode("utf-8")
     expected = base64.b64encode(hmac.new(token.encode("utf-8"), message, hashlib.sha256).digest()).decode("ascii")
-    return hmac.compare_digest(expected, signature)
+    if not hmac.compare_digest(expected, signature):
+        return AuthResult(False)
+    return AuthResult(True, HTTPStatus.OK, "")
 
 
 def verify_api_auth(settings: Settings, headers, method: str, request_target: str, body: bytes) -> bool:
@@ -403,6 +447,8 @@ def verify_api_auth(settings: Settings, headers, method: str, request_target: st
     body_hash = headers.get("X-Wond-Body-SHA256")
     signature = headers.get("X-Wond-Signature")
     if not timestamp or not body_hash or not signature:
+        return False
+    if not is_sha256_hex(body_hash):
         return False
     try:
         sent_at = int(timestamp)
@@ -417,6 +463,36 @@ def verify_api_auth(settings: Settings, headers, method: str, request_target: st
     message = f"{timestamp}\n{method.upper()}\n{request_target}\n{body_hash}".encode("utf-8")
     expected = base64.b64encode(hmac.new(token.encode("utf-8"), message, hashlib.sha256).digest()).decode("ascii")
     return hmac.compare_digest(expected, signature)
+
+
+def cleanup_upload_artifacts(settings: Settings, *paths: Path | None) -> None:
+    inbox = mobile_sync_inbox(settings)
+    seen: set[Path] = set()
+    for path in paths:
+        if path is None:
+            continue
+        try:
+            resolved = path.resolve()
+        except OSError:
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        try:
+            if resolved.is_file() and is_relative_to(resolved, inbox):
+                resolved.unlink()
+        except OSError:
+            pass
+
+
+def is_sha256_hex(value: str) -> bool:
+    if len(value) != 64:
+        return False
+    try:
+        int(value, 16)
+    except ValueError:
+        return False
+    return True
 
 
 def sha256_file(path: Path) -> str:
@@ -457,7 +533,11 @@ def base64_decode(value: Any) -> bytes:
 def import_upload_zip(settings: Settings, zip_path: Path) -> SyncImportResult:
     import_root = settings.data_dir / "mobile_sync" / "imports" / zip_path.stem
     import_root.mkdir(parents=True, exist_ok=True)
-    extract_zip_safely(zip_path, import_root)
+    try:
+        extract_zip_safely(zip_path, import_root)
+    except Exception:
+        shutil.rmtree(import_root, ignore_errors=True)
+        raise
     json_path = find_mobile_export(import_root)
     result = SyncImportResult()
     if not json_path:
@@ -892,11 +972,17 @@ def all_mobile_events_exist(
 
 
 def extract_zip_safely(zip_path: Path, destination: Path) -> None:
+    root = destination.resolve()
     with zipfile.ZipFile(zip_path) as archive:
+        targets = []
         for member in archive.infolist():
             target = (destination / member.filename).resolve()
-            if not str(target).startswith(str(destination.resolve())):
+            try:
+                target.relative_to(root)
+            except ValueError:
                 raise ValueError(f"unsafe zip path: {member.filename}")
+            targets.append((member, target))
+        for member, target in targets:
             if member.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
                 continue

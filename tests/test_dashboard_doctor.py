@@ -16,12 +16,15 @@ from wond.dashboard import (
     action_speaker_detach_sample,
     action_speaker_merge_many,
     action_speaker_refresh_sample_confidence,
+    action_speaker_split_sample,
     action_speaker_unhide,
+    api_speakers,
     api_insight_state_post,
     api_setup,
     api_setup_token,
     api_settings_update,
     data_quality_checks,
+    editable_settings_schema,
     http_check,
     is_local_http_permission_error,
     ollama_check,
@@ -202,8 +205,8 @@ class DashboardDoctorTests(unittest.TestCase):
                         "speaker_recognition": {
                             "embedding_backend": "fixture",
                             "embedding_model": "test-model",
-                            "auto_merge_threshold": 0.68,
-                            "candidate_threshold": 0.68,
+                            "auto_merge_threshold": 0.73,
+                            "candidate_threshold": 0.74,
                         },
                     }
                 ),
@@ -267,6 +270,8 @@ class DashboardDoctorTests(unittest.TestCase):
 
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["model"]["embedding_model"], "fixture:test-model")
+        self.assertAlmostEqual(payload["model"]["auto_merge_threshold"], 0.73)
+        self.assertAlmostEqual(payload["model"]["candidate_threshold"], 0.74)
         self.assertEqual(payload["summary"]["speakers"], 2)
         self.assertEqual(payload["summary"]["stable_speakers"], 1)
         self.assertEqual(payload["summary"]["missing_embeddings"], 1)
@@ -274,9 +279,99 @@ class DashboardDoctorTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["representative_samples"], 1)
         by_stage = {stage["key"]: stage for stage in payload["stages"]}
         self.assertEqual(by_stage["embedding"]["status"], "blocked")
+        self.assertEqual(by_stage["organize"]["action"]["args"], {})
+        self.assertIn("threshold 0.730", by_stage["organize"]["detail"])
         self.assertTrue(any(row["training_state"] == "confirmed" for row in payload["speakers"]))
         self.assertTrue(any("missing_embedding" in row["issues"] for row in payload["sample_queue"]))
         self.assertEqual(payload["recent_matches"][0]["status"], "candidate")
+
+    def test_speakers_payload_uses_configured_thresholds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / "config.json"
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "data_dir": "data",
+                        "timezone": "Asia/Tokyo",
+                        "speaker_recognition": {
+                            "embedding_backend": "fixture",
+                            "embedding_model": "test-model",
+                            "auto_merge_threshold": 0.82,
+                            "auto_merge_max_merges": 123,
+                            "candidate_threshold": 0.75,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            settings = load_settings(config_path)
+            store = Store(settings.db_path)
+            try:
+                speaker = store.ensure_speaker_for_alias("fixture:voice", default_name="Voice 1", label="Voice 1")
+                speaker_id = int(speaker["id"])
+                store.conn.execute(
+                    "UPDATE speakers SET confidence = ? WHERE id = ?",
+                    (0.72, speaker_id),
+                )
+                for index, vector in enumerate(([1.0, 0.0], [0.72, 0.28]), start=1):
+                    sample = store.add_speaker_sample(
+                        speaker_id=speaker_id,
+                        observation_id=None,
+                        source_key=f"sample:{index}",
+                        media_path=None,
+                        sample_path=f"sample-{index}.m4a",
+                        start_seconds=0.0,
+                        end_seconds=1.0,
+                        transcript=f"sample {index}",
+                        metadata={"sample_confidence": 0.72},
+                    )
+                    store.add_speaker_embedding(
+                        speaker_id=speaker_id,
+                        sample_id=int(sample["id"]),
+                        model="fixture:test-model",
+                        vector=vector,
+                    )
+            finally:
+                store.close()
+
+            payload = api_speakers(settings)
+
+        thresholds = payload["config"]["speaker_recognition"]
+        self.assertAlmostEqual(thresholds["auto_merge_threshold"], 0.82)
+        self.assertEqual(thresholds["auto_merge_max_merges"], 123)
+        self.assertAlmostEqual(thresholds["candidate_threshold"], 0.75)
+        self.assertEqual(payload["speakers"][0]["confidence_summary"]["level"], "low")
+        self.assertIn("0.750", payload["speakers"][0]["confidence_summary"]["detail"])
+
+    def test_speakers_payload_returns_all_samples_for_selection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config_path = root / "config.json"
+            config_path.write_text(json.dumps({"data_dir": "data", "timezone": "Asia/Tokyo"}), encoding="utf-8")
+            settings = load_settings(config_path)
+            store = Store(settings.db_path)
+            try:
+                speaker = store.ensure_speaker_for_alias("fixture:voice", default_name="Voice 1", label="Voice 1")
+                for index in range(305):
+                    store.add_speaker_sample(
+                        speaker_id=int(speaker["id"]),
+                        observation_id=None,
+                        source_key=f"sample:{index}",
+                        media_path=None,
+                        sample_path=f"sample-{index}.m4a",
+                        start_seconds=float(index),
+                        end_seconds=float(index + 1),
+                        transcript=f"sample {index}",
+                        metadata={},
+                    )
+            finally:
+                store.close()
+
+            payload = api_speakers(settings)
+
+        self.assertEqual(len(payload["samples"]), 305)
+        self.assertEqual(payload["speakers"][0]["sample_count"], 305)
 
     def test_privacy_payload_reports_sensitive_sources_and_retention(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -424,6 +519,7 @@ class DashboardDoctorTests(unittest.TestCase):
         self.assertIn("speaker_merge_many", DASHBOARD_HTML)
         self.assertIn("speaker_delete_many", DASHBOARD_HTML)
         self.assertIn("speaker_detach_sample", DASHBOARD_HTML)
+        self.assertIn("speaker_split_sample", DASHBOARD_HTML)
         self.assertIn("speaker_refresh_sample_confidence", DASHBOARD_HTML)
         self.assertIn("speaker_auto_organize", DASHBOARD_HTML)
         self.assertIn("speaker_confirm", DASHBOARD_HTML)
@@ -432,12 +528,16 @@ class DashboardDoctorTests(unittest.TestCase):
         self.assertIn("refreshSpeakerSampleConfidence", DASHBOARD_HTML)
         self.assertIn("autoOrganizeSpeakers", DASHBOARD_HTML)
         self.assertIn("自动整理相似声音", DASHBOARD_HTML)
+        self.assertIn("speakerAutoMergeThreshold", DASHBOARD_HTML)
+        self.assertNotIn("{threshold:0.68}", DASHBOARD_HTML)
+        self.assertIn('preload="none"', DASHBOARD_HTML)
+        self.assertNotIn('preload="metadata"', DASHBOARD_HTML)
         self.assertIn("自动整理待确认", DASHBOARD_HTML)
         self.assertNotIn("合并审核", DASHBOARD_HTML)
         self.assertIn("隐藏低相似", DASHBOARD_HTML)
         self.assertIn("分离成新说话人", DASHBOARD_HTML)
-        self.assertNotIn("speaker_split_sample", DASHBOARD_HTML)
-        self.assertNotIn("splitSpeakerSample", DASHBOARD_HTML)
+        self.assertIn("手动切分样本", DASHBOARD_HTML)
+        self.assertIn("splitSpeakerSample", DASHBOARD_HTML)
         self.assertNotIn("speakerSplitModal", DASHBOARD_HTML)
         self.assertNotIn("splitSpeakerAtCurrentTime", DASHBOARD_HTML)
         self.assertNotIn("submitSpeakerSplit", DASHBOARD_HTML)
@@ -457,11 +557,16 @@ class DashboardDoctorTests(unittest.TestCase):
             SimpleNamespace(),
             {"sample_id": "12", "display_name": "Alice"},
         )
+        split_cmd = action_speaker_split_sample(
+            SimpleNamespace(),
+            {"sample_id": "12", "cuts": "3.2, 7.8", "keep_speaker": True},
+        )
         refresh_cmd = action_speaker_refresh_sample_confidence(
             SimpleNamespace(),
             {"speaker_ids": ["4", "4", "5"]},
         )
         refresh_all_cmd = action_speaker_refresh_sample_confidence(SimpleNamespace(), {})
+        organize_default_cmd = action_speaker_auto_organize(SimpleNamespace(), {})
         organize_cmd = action_speaker_auto_organize(SimpleNamespace(), {"threshold": 0.68, "max_merges": 9})
         confirm_cmd = action_speaker_confirm(SimpleNamespace(), {"speaker_ids": ["4", "5"]})
         unhide_cmd = action_speaker_unhide(SimpleNamespace(), {"speaker_id": "6"})
@@ -469,8 +574,10 @@ class DashboardDoctorTests(unittest.TestCase):
         self.assertEqual(merge_cmd[-4:], ["merge-many", "9", "1", "2"])
         self.assertEqual(delete_cmd[-4:], ["delete-many", "1", "2", "--apply"])
         self.assertEqual(detach_cmd[-4:], ["detach-sample", "12", "--display-name", "Alice"])
+        self.assertEqual(split_cmd[-5:], ["split-sample", "12", "--cuts", "3.2, 7.8", "--keep-speaker"])
         self.assertEqual(refresh_cmd[-3:], ["refresh-sample-confidence", "4", "5"])
         self.assertEqual(refresh_all_cmd[-1:], ["refresh-sample-confidence"])
+        self.assertNotIn("--threshold", organize_default_cmd)
         self.assertEqual(organize_cmd[-5:], ["--apply", "--max-merges", "9", "--threshold", "0.68"])
         self.assertEqual(confirm_cmd[-3:], ["confirm", "4", "5"])
         self.assertEqual(unhide_cmd[-2:], ["unhide", "6"])
@@ -480,6 +587,18 @@ class DashboardDoctorTests(unittest.TestCase):
         self.assertIn("saveSettingsGroup", DASHBOARD_HTML)
         self.assertIn("保存设置", DASHBOARD_HTML)
         self.assertIn("/api/settings',{method:'POST'", DASHBOARD_HTML)
+
+    def test_speaker_sample_seconds_setting_is_limited_to_sixteen_seconds(self):
+        fields = {field["key"]: field for field in editable_settings_schema()}
+
+        self.assertEqual(fields["speaker_recognition.sample_seconds"]["max"], 16)
+        self.assertEqual(fields["speaker_recognition.sample_min_seconds"]["max"], 16)
+        self.assertEqual(fields["speaker_recognition.sample_stride_seconds"]["max"], 120)
+        self.assertEqual(fields["speaker_recognition.samples_per_speaker_per_observation"]["max"], 200)
+        self.assertEqual(fields["speaker_recognition.sample_unlabeled_speech"]["type"], "bool")
+        self.assertEqual(fields["speaker_recognition.auto_merge_max_merges"]["max"], 5000)
+        self.assertEqual(fields["audio_preprocessing.quality_min_speech_seconds"]["max"], 16)
+        self.assertEqual(fields["audio_preprocessing.quality_min_speech_ratio"]["max"], 1)
 
     def test_settings_update_writes_allowlisted_config(self):
         with tempfile.TemporaryDirectory() as tmp:

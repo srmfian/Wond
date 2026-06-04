@@ -175,6 +175,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "quality_min_seconds": 0.8,
         "quality_min_rms_dbfs": -45,
         "quality_max_clipped_ratio": 0.02,
+        "quality_min_speech_seconds": 2.0,
+        "quality_min_speech_ratio": 0.22,
+        "quality_speech_activity_margin_db": 6.0,
+        "quality_speech_activity_min_dbfs": -42.0,
+        "quality_speech_activity_max_zcr": 0.35,
+        "quality_noise_gate_enabled": True,
+        "quality_max_noise_floor_dbfs": -28.0,
+        "quality_min_speech_noise_margin_db": 9.0,
         "keep_intermediate": False,
         "overlap_separation_enabled": True,
         "overlap_separation_backend": "speechbrain_sepformer",
@@ -198,9 +206,15 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "embedding_model": "speechbrain/spkrec-ecapa-voxceleb",
         "embedding_model_dir": "models/speechbrain",
         "embedding_sample_rate": 16000,
-        "sample_seconds": 8,
+        "sample_seconds": 16,
         "sample_min_seconds": 0.5,
         "sample_boundary_guard_seconds": 0.08,
+        "sample_stride_seconds": 16,
+        "sample_fine_window_seconds": 3,
+        "sample_fine_stride_seconds": 2.5,
+        "samples_per_speaker_per_observation": 200,
+        "sample_unlabeled_speech": True,
+        "sample_require_diarization_segments": True,
         "sample_long_segment_anchor": "start",
         "sample_dir": "speaker_samples",
         "collapse_vad_chunk_scopes": False,
@@ -208,6 +222,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "confirmed_profile_max_prototypes": 6,
         "confirmed_profile_min_samples": 2,
         "auto_merge_threshold": 0.68,
+        "auto_merge_max_merges": 5000,
         "candidate_threshold": 0.68,
         "review_min_samples": 5,
         "review_min_observations": 3,
@@ -249,7 +264,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "speaker_diarization_fallback_backend": "",
         "speaker_diarization_fallback_model": "",
         "speaker_diarization_timeout_seconds": 900,
-        "speaker_diarization_context": "Return timestamped transcript segments with distinct speaker labels.",
+        "speaker_diarization_context": (
+            "Return timestamped transcript segments with distinct speaker labels. "
+            "Split aggressively at every speaker turn, including very short replies, backchannels, and interruptions. "
+            "Do not merge multiple speakers into one segment."
+        ),
         "transcription_language": "auto",
         "transcription_command": "",
         "vad_presegment": True,
@@ -266,7 +285,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "diarization_vad_max_chunk_seconds": 120,
         "diarization_vad_max_chunks": 32,
         "diarization_vad_max_count_merge_gap_seconds": 8.0,
-        "vibevoice_prompt": "Transcribe the audio with timestamps and distinct speaker labels such as Speaker 1 and Speaker 2. Preserve the spoken language and code switching.",
+        "vibevoice_prompt": (
+            "Transcribe the audio with timestamps and distinct speaker labels such as Speaker 1 and Speaker 2. "
+            "Split aggressively at every speaker turn, including very short replies, backchannels, and interruptions. "
+            "Preserve the spoken language and code switching."
+        ),
         "vibevoice_device_map": "auto",
     },
     "openai_analysis": {
@@ -284,6 +307,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "service_name": "Wond",
         "token": "",
         "max_upload_mb": 2048,
+        "require_encrypted_uploads": True,
         "write_reports": True,
         "skip_existing_uploads": True,
         "analyze_after_import": False,

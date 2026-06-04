@@ -44,6 +44,11 @@ from .recycle_bin import (
     restore_recycle_entry,
 )
 from .retention import run_retention
+from .release_audit import (
+    format_release_privacy_audit,
+    release_audit_exit_code,
+    release_privacy_audit,
+)
 from .speakers import (
     auto_organize_speakers,
     collapse_vad_chunk_speakers,
@@ -59,6 +64,7 @@ from .speakers import (
     resolve_speaker_match_decision,
     revive_hidden_speakers,
     reset_and_auto_group_speaker_samples,
+    split_speaker_sample,
     speaker_profile_payload,
 )
 from .store import Store
@@ -501,11 +507,14 @@ def command_speakers(args: argparse.Namespace) -> int:
             if not args.apply:
                 print("Dry run is not implemented for auto-organize yet. Re-run with --apply.", file=sys.stderr)
                 return 1
+            max_merges = args.max_merges
+            if max_merges is None:
+                max_merges = int(settings.speaker_recognition.get("auto_merge_max_merges", 5000))
             result = auto_organize_speakers(
                 settings,
                 store,
                 threshold=args.threshold,
-                max_merges=args.max_merges,
+                max_merges=max_merges,
                 hide_unmatched=not args.keep_unmatched_visible,
             )
             for line in result.lines():
@@ -616,6 +625,19 @@ def command_speakers(args: argparse.Namespace) -> int:
                 store,
                 sample_id=args.sample_id,
                 display_name=args.display_name,
+            )
+            for line in result.lines():
+                print(line)
+            return 1 if result.failed else 0
+
+        if args.speaker_command == "split-sample":
+            result = split_speaker_sample(
+                settings,
+                store,
+                sample_id=args.sample_id,
+                cut_points=parse_float_list(args.cuts),
+                separate_speakers=not args.keep_speaker,
+                archive_parent=not args.keep_parent_active,
             )
             for line in result.lines():
                 print(line)
@@ -784,6 +806,10 @@ def unique_ints(values: list[int]) -> list[int]:
     return unique
 
 
+def parse_float_list(value: str) -> list[float]:
+    return [float(item) for item in str(value or "").replace(",", " ").split()]
+
+
 def delete_speaker_sample_files(settings, sample_paths: list[str]) -> int:
     root = settings.speaker_sample_dir.resolve()
     deleted = 0
@@ -920,6 +946,20 @@ def command_status(args: argparse.Namespace) -> int:
         )
     store.close()
     return 0
+
+
+def command_release_audit(args: argparse.Namespace) -> int:
+    root = args.root or Path.cwd()
+    payload = release_privacy_audit(
+        root,
+        include_history=not args.no_history,
+        max_history_commits=args.max_history_commits,
+    )
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    else:
+        print(format_release_privacy_audit(payload))
+    return release_audit_exit_code(payload, fail_on_warn=args.fail_on_warn)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1138,7 +1178,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Automatically merge similar voices and hide low-similarity auto voices.",
     )
     p_speakers_auto_organize.add_argument("--threshold", type=float, default=None, help="Auto-merge threshold. Defaults to config.")
-    p_speakers_auto_organize.add_argument("--max-merges", type=int, default=50, help="Maximum merges to apply in one run.")
+    p_speakers_auto_organize.add_argument("--max-merges", type=int, default=None, help="Maximum merges to apply in one run. Defaults to config.")
     p_speakers_auto_organize.add_argument("--keep-unmatched-visible", action="store_true", help="Do not hide auto voices that cannot be merged.")
     p_speakers_auto_organize.add_argument("--apply", action="store_true", help="Actually organize speakers.")
     p_speakers_auto_organize.set_defaults(func=command_speakers)
@@ -1180,6 +1220,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_speakers_detach_sample.add_argument("sample_id", type=int)
     p_speakers_detach_sample.add_argument("--display-name", default=None, help="Optional name for the new speaker.")
     p_speakers_detach_sample.set_defaults(func=command_speakers)
+
+    p_speakers_split_sample = speaker_sub.add_parser("split-sample", help="Split one speaker sample into manual child samples.")
+    p_speakers_split_sample.add_argument("sample_id", type=int)
+    p_speakers_split_sample.add_argument("--cuts", required=True, help="Relative cut points in seconds, comma or space separated.")
+    p_speakers_split_sample.add_argument("--keep-speaker", action="store_true", help="Keep child samples on the current speaker instead of new voices.")
+    p_speakers_split_sample.add_argument("--keep-parent-active", action="store_true", help="Do not archive the original parent sample.")
+    p_speakers_split_sample.set_defaults(func=command_speakers)
 
     p_speakers_refresh_sample_confidence = speaker_sub.add_parser(
         "refresh-sample-confidence",
@@ -1323,6 +1370,27 @@ def build_parser() -> argparse.ArgumentParser:
     p_status = sub.add_parser("status", help="Show local status.")
     add_common_args(p_status)
     p_status.set_defaults(func=command_status)
+
+    p_release_audit = sub.add_parser(
+        "release-audit",
+        aliases=["privacy-audit"],
+        help="Audit the repo for release-blocking privacy leaks.",
+    )
+    p_release_audit.add_argument("--root", type=Path, default=None, help="Repository root to audit. Defaults to cwd/git root.")
+    p_release_audit.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    p_release_audit.add_argument("--no-history", action="store_true", help="Skip Git history scanning.")
+    p_release_audit.add_argument(
+        "--max-history-commits",
+        type=int,
+        default=100,
+        help="Maximum recent commits to scan when history scanning is enabled.",
+    )
+    p_release_audit.add_argument(
+        "--fail-on-warn",
+        action="store_true",
+        help="Return a non-zero exit code when warnings are present.",
+    )
+    p_release_audit.set_defaults(func=command_release_audit)
     return parser
 
 

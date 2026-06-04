@@ -106,7 +106,7 @@ class SearchFilterTests(unittest.TestCase):
             self.addCleanup(store.close)
             ensure_search_schema(store)
             internal_text = f"Changed Wond cache at {settings.data_dir / 'mobile-export.json'}"
-            external_text = "Changed user document at /Users/example/Downloads/deck.pdf"
+            external_text = "Changed user document at ~/Downloads/deck.pdf"
             for key, text in (("internal", internal_text), ("external", external_text)):
                 store.conn.execute(
                     """

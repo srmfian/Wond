@@ -1022,7 +1022,7 @@ def repair_queue_items(settings: Any, store: Store, *, target_day: date, limit: 
     items.extend(collector_error_repairs(store))
     items.extend(stale_run_repairs(store))
     items.extend(audio_repairs(settings, store, target_day))
-    items.extend(speaker_repairs(store))
+    items.extend(speaker_repairs(settings, store))
     items.extend(search_repairs(store))
     items.extend(mobile_sync_repairs(settings))
     items.extend(file_analysis_repairs(settings))
@@ -1160,7 +1160,7 @@ def audio_repairs(settings: Any, store: Store, target_day: date) -> list[dict[st
     return items
 
 
-def speaker_repairs(store: Store) -> list[dict[str, Any]]:
+def speaker_repairs(settings: Any, store: Store) -> list[dict[str, Any]]:
     rows = store.list_speakers()
     pending = []
     low_sample = []
@@ -1182,9 +1182,9 @@ def speaker_repairs(store: Store) -> list[dict[str, Any]]:
                 "warn",
                 "speakers",
                 f"{len(pending)} 个说话人需要确认/命名",
-                "这些声音会影响按人回顾和 speaker 证据质量。",
+                f"这些声音会影响按人回顾和 speaker 证据质量；自动整理会读取当前阈值 {speaker_auto_merge_threshold(settings):.3f}。",
                 evidence=speaker_evidence(pending[:6]),
-                action={"name": "speaker_auto_organize", "args": {"threshold": 0.68}, "label": "自动整理后复查"},
+                action={"name": "speaker_auto_organize", "args": {}, "label": "自动整理后复查"},
             )
         )
     if low_sample:
@@ -1211,6 +1211,16 @@ def speaker_repairs(store: Store) -> list[dict[str, Any]]:
             )
         )
     return items
+
+
+def speaker_auto_merge_threshold(settings: Any) -> float:
+    try:
+        value = float(settings.speaker_recognition.get("auto_merge_threshold", 0.68))
+    except (AttributeError, TypeError, ValueError):
+        return 0.68
+    if value <= 0 or value > 1:
+        return 0.68
+    return value
 
 
 def search_repairs(store: Store) -> list[dict[str, Any]]:
