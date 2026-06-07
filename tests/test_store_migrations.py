@@ -20,8 +20,8 @@ class StoreMigrationTests(unittest.TestCase):
                 store.close()
 
         self.assertEqual(user_version, LATEST_SCHEMA_VERSION)
-        self.assertEqual([row["version"] for row in rows], [1, 2, 3])
-        self.assertEqual(rows[-1]["name"], "speaker_match_display_names")
+        self.assertEqual([row["version"] for row in rows], [1, 2, 3, 4])
+        self.assertEqual(rows[-1]["name"], "personal_memory_schema")
 
     def test_store_migrations_repair_legacy_speaker_columns(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -63,6 +63,10 @@ class StoreMigrationTests(unittest.TestCase):
                     row["name"]
                     for row in store.conn.execute("PRAGMA table_info(speaker_match_decisions)")
                 }
+                memory_columns = {
+                    row["name"]
+                    for row in store.conn.execute("PRAGMA table_info(personal_memories)")
+                }
                 user_version = store.conn.execute("PRAGMA user_version").fetchone()[0]
             finally:
                 store.close()
@@ -72,6 +76,8 @@ class StoreMigrationTests(unittest.TestCase):
         self.assertIn("confidence", speaker_columns)
         self.assertIn("source_display_name", match_columns)
         self.assertIn("target_display_name", match_columns)
+        self.assertIn("memory_type", memory_columns)
+        self.assertIn("status", memory_columns)
 
 
 if __name__ == "__main__":

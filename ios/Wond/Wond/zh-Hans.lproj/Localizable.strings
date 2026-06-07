@@ -1,7 +1,6 @@
 "Capture" = "采集";
 "Today" = "今天";
 "Ask" = "问答";
-"Review" = "复查";
 "Settings" = "设置";
 "Controls" = "控制";
 "Stop Session" = "停止会话";
@@ -109,19 +108,6 @@
 "Observation %d" = "记录 %d";
 "Citation" = "引用";
 "Done" = "完成";
-"No Review Items" = "没有复查项";
-"Speaker %d" = "说话人 %d";
-"Name" = "名字";
-"Confirm Name" = "确认名字";
-"No transcript" = "没有转写";
-"No speakers are ready for naming." = "没有需要命名的说话人。";
-"Review refresh failed: %@" = "复查刷新失败：%@";
-"Named %@." = "已命名为 %@。";
-"Name update failed: %@" = "名字更新失败：%@";
-"Sample playback failed: %@" = "样本播放失败：%@";
-"No score" = "没有分数";
-"Audio unavailable" = "音频不可用";
-"Sample" = "样本";
 "Recording" = "录音";
 "Segment length" = "片段长度";
 "Audio quality" = "音频质量";

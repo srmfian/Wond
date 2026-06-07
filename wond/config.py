@@ -24,6 +24,9 @@ def expand_path(value: str | Path) -> Path:
 DEFAULT_CONFIG: dict[str, Any] = {
     "data_dir": "data",
     "timezone": "Asia/Tokyo",
+    "dashboard": {
+        "language": "en",
+    },
     "collectors": {
         "foreground_app": True,
         "calendar": True,
@@ -75,6 +78,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "require_daily_summary_before_prune": True,
         "vacuum_after_prune": True,
     },
+    "personal_memory": {
+        "enabled": True,
+        "candidate_sources": [
+            "mobile",
+            "apple_mail",
+            "messages",
+            "calendar",
+            "local_ai",
+            "openai",
+        ],
+        "max_candidates_per_day": 24,
+        "qa_include_confirmed": True,
+        "qa_include_profile": True,
+        "qa_memory_limit": 12,
+        "high_sensitivity_requires_confirmation": True,
+        "auto_link_speakers": False,
+    },
     "email_reports": {
         "enabled": False,
         "from": "sender@example.com",
@@ -93,9 +113,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "retry_after_seconds": 3600,
         "send_window_seconds": 7200,
         "ai_highlights": True,
+        "model": "",
+        "fallback_model": "",
+        "daily_model": "",
+        "weekly_model": "",
         "daily_highlight_items": 6,
         "weekly_highlight_items": 10,
         "highlight_source_max_chars": 30000,
+        "ollama_timeout_seconds": 3600,
     },
     "file_analysis": {
         "enabled": False,
@@ -331,6 +356,8 @@ class Settings:
     limits: dict[str, int] = field(default_factory=dict)
     agent: dict[str, int] = field(default_factory=dict)
     retention: dict[str, Any] = field(default_factory=dict)
+    personal_memory: dict[str, Any] = field(default_factory=dict)
+    dashboard: dict[str, Any] = field(default_factory=dict)
     email_reports: dict[str, Any] = field(default_factory=dict)
     file_analysis: dict[str, Any] = field(default_factory=dict)
     recycle_bin: dict[str, Any] = field(default_factory=dict)
@@ -429,6 +456,8 @@ def load_settings(path: Path | None = None) -> Settings:
         limits={key: int(value) for key, value in raw.get("limits", {}).items()},
         agent={key: int(value) for key, value in raw.get("agent", {}).items()},
         retention=dict(raw.get("retention", {})),
+        personal_memory=dict(raw.get("personal_memory", {})),
+        dashboard=dict(raw.get("dashboard", {})),
         email_reports=dict(raw.get("email_reports", {})),
         file_analysis=dict(raw.get("file_analysis", {})),
         recycle_bin=dict(raw.get("recycle_bin", {})),

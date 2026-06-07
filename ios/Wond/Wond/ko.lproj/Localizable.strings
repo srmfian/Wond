@@ -1,7 +1,6 @@
 "Capture" = "수집";
 "Today" = "오늘";
 "Ask" = "질문";
-"Review" = "검토";
 "Settings" = "설정";
 "Controls" = "제어";
 "Stop Session" = "세션 중지";
@@ -109,19 +108,6 @@
 "Observation %d" = "기록 %d";
 "Citation" = "인용";
 "Done" = "완료";
-"No Review Items" = "검토 항목 없음";
-"Speaker %d" = "화자 %d";
-"Name" = "이름";
-"Confirm Name" = "이름 확인";
-"No transcript" = "전사 없음";
-"No speakers are ready for naming." = "이름 지정 대기 중인 화자가 없습니다.";
-"Review refresh failed: %@" = "검토 새로고침 실패: %@";
-"Named %@." = "%@ 이름 지정 완료.";
-"Name update failed: %@" = "이름 업데이트 실패: %@";
-"Sample playback failed: %@" = "샘플 재생 실패: %@";
-"No score" = "점수 없음";
-"Audio unavailable" = "오디오 사용 불가";
-"Sample" = "샘플";
 "Segment length" = "세그먼트 길이";
 "Audio quality" = "오디오 품질";
 "Stop recording during quiet hours" = "조용한 시간에는 녹음 중지";

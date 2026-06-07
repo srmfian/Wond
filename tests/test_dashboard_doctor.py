@@ -155,6 +155,14 @@ class DashboardDoctorTests(unittest.TestCase):
         self.assertIn("async function meetingMode", DASHBOARD_HTML)
         self.assertIn("写入项目记忆", DASHBOARD_HTML)
 
+    def test_dashboard_has_personal_memory_workspace(self):
+        self.assertIn("['personal','个人档案']", DASHBOARD_HTML)
+        self.assertIn("/api/personal-memory", DASHBOARD_HTML)
+        self.assertIn("async function personalMemory", DASHBOARD_HTML)
+        self.assertIn("记忆收件箱", DASHBOARD_HTML)
+        self.assertIn("联系人档案", DASHBOARD_HTML)
+        self.assertIn("冲突队列", DASHBOARD_HTML)
+
     def test_dashboard_has_privacy_retention_center(self):
         self.assertIn("['privacy','隐私与保留']", DASHBOARD_HTML)
         self.assertIn("/api/privacy", DASHBOARD_HTML)

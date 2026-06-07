@@ -270,6 +270,10 @@ def best_existing_speaker_match(
     confirmed_profiles_enabled = bool_config(config.get("confirmed_profile_matching_enabled"), True)
     max_prototypes = int_config(config.get("confirmed_profile_max_prototypes"), 6, minimum=1, maximum=24)
     min_profile_samples = int_config(config.get("confirmed_profile_min_samples"), 2, minimum=1, maximum=24)
+    target_eligibility_threshold = float_config(
+        config.get("candidate_threshold", config.get("auto_merge_threshold")),
+        0.68,
+    )
     speaker_rows = {int(row["id"]): row for row in store.list_speakers()}
     source = np.array(vector, dtype=float)
     if source.size <= 0:
@@ -288,6 +292,8 @@ def best_existing_speaker_match(
         if not arrays:
             continue
         row = speaker_rows.get(candidate_id)
+        if not speaker_cluster_match_eligible(row, threshold=target_eligibility_threshold):
+            continue
         confirmed = speaker_is_confirmed(row)
         if confirmed_profiles_enabled and confirmed and len(arrays) >= min_profile_samples:
             score, prototype_count = confirmed_profile_score(source, arrays, max_prototypes=max_prototypes)
@@ -337,6 +343,63 @@ def speaker_is_confirmed(row: Any) -> bool:
         return False
     metadata = json_dict(row["metadata"] if "metadata" in row.keys() else None)
     return str(metadata.get("speaker_review_status") or "").strip() == "confirmed"
+
+
+def speaker_cluster_match_eligible(row: Any, *, threshold: float) -> bool:
+    if row is None:
+        return False
+    review_status = speaker_review_status(row)
+    if review_status == "confirmed":
+        return True
+    if review_status in {"auto_merged_pending_review", "low_similarity_hidden", "needs_review"}:
+        return False
+    identity_status = str(row["identity_status"] or "").strip()
+    if identity_status in {"named", "confirmed", "accepted"}:
+        return False
+
+    sample_count = speaker_sample_count(row)
+    confidence = speaker_confidence_value(row)
+    if sample_count >= 2:
+        if confidence is None:
+            return False
+        return confidence >= threshold
+    return True
+
+
+def speaker_review_status(row: Any) -> str:
+    metadata = json_dict(row["metadata"] if "metadata" in row.keys() else None)
+    return str(metadata.get("speaker_review_status") or "").strip()
+
+
+def speaker_sample_count(row: Any) -> int:
+    if "sample_count" not in row.keys():
+        return 0
+    try:
+        return max(0, int(row["sample_count"] or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def speaker_confidence_value(row: Any) -> float | None:
+    if "confidence" not in row.keys():
+        return None
+    try:
+        value = float(row["confidence"])
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(value):
+        return None
+    return value
+
+
+def float_config(value: Any, default: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(parsed):
+        return default
+    return parsed
 
 
 def matching_embedding_arrays(vectors: list[list[float]], *, dimension: int) -> list[np.ndarray]:

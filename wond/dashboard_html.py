@@ -821,7 +821,7 @@ const sections = [
   ['today','今天'], ['action','行动'], ['search','资料'], ['audio','音频'], ['setup','系统']
 ];
 const childSections = [
-  ['inbox','处理队列'], ['projects','项目聚类'], ['memory','项目记忆'], ['meeting','会议'],
+  ['inbox','处理队列'], ['projects','项目聚类'], ['memory','项目记忆'], ['personal','个人档案'], ['meeting','会议'],
   ['speaker-training','Speaker 训练'], ['speakers','说话人'],
   ['files','文件'], ['sources','来源'], ['reports','报告'],
   ['privacy','隐私与保留'], ['sync','手机同步'], ['doctor','诊断'], ['settings','配置']
@@ -859,6 +859,17 @@ const translationRows = [
   ['处理队列','Inbox','処理キュー','처리 대기열'],
   ['项目聚类','Projects','プロジェクトクラスタ','프로젝트 클러스터'],
   ['项目记忆','Project Memory','プロジェクト記憶','프로젝트 기억'],
+  ['个人档案','Personal Profile','個人プロファイル','개인 프로필'],
+  ['个人记忆','Personal Memory','個人記憶','개인 기억'],
+  ['记忆收件箱','Memory Inbox','記憶インボックス','기억 받은함'],
+  ['联系人档案','People Files','人物ファイル','인물 파일'],
+  ['冲突队列','Conflict Queue','競合キュー','충돌 대기열'],
+  ['确认记忆','Confirmed Memories','確認済み記憶','확인된 기억'],
+  ['快速写入','Quick Add','クイック追加','빠른 추가'],
+  ['档案字段','Profile Fields','プロファイル項目','프로필 필드'],
+  ['候选提取','Candidate Extraction','候補抽出','후보 추출'],
+  ['隐私与删除','Privacy & Delete','プライバシーと削除','개인정보 및 삭제'],
+  ['彻底删除','Delete Permanently','完全に削除','영구 삭제'],
   ['会议','Meeting','ミーティング','회의'],
   ['Speaker 训练','Speaker Training','話者トレーニング','화자 훈련'],
   ['Speaker 训练闭环','Speaker Training Loop','話者トレーニングループ','화자 훈련 루프'],
@@ -1065,6 +1076,14 @@ const translationRows = [
   ['选择界面语言','Choose interface language','表示言語を選択','인터페이스 언어 선택'],
   ['立即应用','Apply now','今すぐ適用','지금 적용'],
   ['初始语言为英语，切换会保存在此浏览器。','Default is English. Changes are saved in this browser.','初期言語は英語です。変更はこのブラウザに保存されます。','초기 언어는 영어입니다. 변경 사항은 이 브라우저에 저장됩니다.'],
+  ['切换会保存在此浏览器，并同步为日报/周报邮件语言。','Changes are saved in this browser and synced as the daily/weekly email language.','変更はこのブラウザに保存され、日報/週報メールの言語として同期されます。','변경 사항은 이 브라우저에 저장되며 일일/주간 이메일 언어로 동기화됩니다.'],
+  ['界面语言，也会作为日报和周报邮件的输出语言。','Interface language; also used as the output language for daily and weekly emails.','インターフェース言語。日報と週報メールの出力言語にも使われます。','인터페이스 언어이며 일일/주간 이메일 출력 언어로도 사용됩니다.'],
+  ['邮件摘要模型','Email summary model','メール要約モデル','이메일 요약 모델'],
+  ['邮件备用模型','Email fallback model','メール予備モデル','이메일 예비 모델'],
+  ['日报模型','Daily email model','日報モデル','일일 이메일 모델'],
+  ['周报模型','Weekly email model','週報モデル','주간 이메일 모델'],
+  ['邮件 Ollama 超时','Email Ollama timeout','メール Ollama タイムアウト','이메일 Ollama 시간 제한'],
+  ['摘要邮件发送时间、SMTP、Keychain 和日报/周报模型配置。','Summary email schedule, SMTP, Keychain, and daily/weekly model settings.','要約メールの送信時刻、SMTP、Keychain、日報/週報モデル設定。','요약 이메일 시간, SMTP, Keychain, 일일/주간 모델 설정입니다.'],
   ['保存设置','Save settings','設定を保存','설정 저장'],
   ['重载 Agent','Reload Agent','Agentを再読み込み','Agent 다시 로드'],
   ['重载同步服务','Reload sync service','同期サービスを再読み込み','동기화 서비스 다시 로드'],
@@ -1669,7 +1688,7 @@ function setDocumentLanguage(){
 }
 const sectionGroups = {
   today:'日常', action:'日常', inbox:'日常', projects:'日常', memory:'日常', meeting:'日常',
-  search:'记忆', files:'记忆', sources:'记忆', reports:'记忆',
+  search:'记忆', personal:'记忆', files:'记忆', sources:'记忆', reports:'记忆',
   audio:'音频', 'speaker-training':'音频', speakers:'音频',
   setup:'系统', privacy:'系统', sync:'系统', doctor:'系统', settings:'系统',
   overview:'系统', timeline:'日常', recycle:'系统', maintenance:'系统'
@@ -1678,22 +1697,23 @@ const navParents = {
   timeline:'today',
   inbox:'action', suggestions:'inbox', projects:'action', memory:'action', meeting:'action',
   'speaker-training':'audio', speakers:'audio',
-  files:'search', sources:'search', reports:'search',
+  personal:'search', files:'search', sources:'search', reports:'search',
   overview:'setup', recycle:'setup', privacy:'setup', sync:'setup', doctor:'setup', settings:'setup', maintenance:'setup'
 };
 const sectionTabs = {
   today: [['today','日内时间线'], ['timeline','原始记录']],
   action: [['action','行动总览'], ['inbox','处理队列'], ['projects','项目聚类'], ['memory','项目记忆'], ['meeting','会议']],
-  search: [['search','资料问答'], ['reports','报告'], ['files','文件'], ['sources','来源']],
+  search: [['search','资料问答'], ['personal','个人档案'], ['reports','报告'], ['files','文件'], ['sources','来源']],
   audio: [['audio','录音队列'], ['speakers','说话人整理'], ['speaker-training','训练闭环']],
   setup: [['setup','启动向导'], ['sync','手机同步'], ['privacy','隐私保留'], ['doctor','诊断'], ['settings','配置'], ['maintenance','维护'], ['recycle','回收箱'], ['overview','系统总览']]
 };
-const state = { language: activeLanguage, section: 'today', setupToken: '', actionDate: 'today', inboxDate: 'today', inboxStatus: 'active', inboxPriority: 'all', inboxSource: 'all', inboxType: 'all', inboxQ: '', suggestionDate: 'today', suggestionStatus: 'active', suggestionPriority: 'all', suggestionSource: 'all', suggestionQ: '', projectDate: 'today', projectStatus: 'active', projectSource: 'all', projectQ: '', memoryDate: 'today', memoryStatus: 'active', memoryQ: '', meetingProjectId: '', meetingTitle: '', privacyView: 'all', reportPath: '', reportQ: '', reportCategory: 'all', audioStatus: '', speakerTrainingView: 'needs_work', sourceView: 'all', speakerView: 'active', speakerQ: '', speakerSort: 'review', speakerSelectedIds: [], speakerShownIds: [], speakerBulkTarget: '', speakerSamplesFor: 'visible', speakerSampleView: 'all', speakerSampleQ: '', speakerSampleSort: 'needs_work', speakerContextSource: 'idle', speakerSamples: [], fileView: 'all', fileQ: '', recycleView: 'all', recycleQ: '', syncView: 'all', syncQ: '', settingsGroup: 'collectors', settingsQ: '', timelineDate: 'today', timelineQ: '', timelineSource: 'all', timelineType: 'all', todayDate: 'today', todayQ: '', todayFrom: '', todayTo: '', todayCategory: 'all', doctorStatus: 'all', doctorArea: 'all', searchQ: '', searchSource: '', searchQuestion: '' };
-const searchSources = [['','全部来源'], ['mobile','mobile'], ['local_ai','local_ai'], ['report','report'], ['filesystem','filesystem'], ['browser','browser'], ['apple_mail','apple_mail']];
+const state = { language: activeLanguage, section: 'today', setupToken: '', actionDate: 'today', inboxDate: 'today', inboxStatus: 'active', inboxPriority: 'all', inboxSource: 'all', inboxType: 'all', inboxQ: '', suggestionDate: 'today', suggestionStatus: 'active', suggestionPriority: 'all', suggestionSource: 'all', suggestionQ: '', projectDate: 'today', projectStatus: 'active', projectSource: 'all', projectQ: '', memoryDate: 'today', memoryStatus: 'active', memoryQ: '', personalDate: 'today', personalStatus: 'confirmed', personalType: 'all', personalQ: '', meetingProjectId: '', meetingTitle: '', privacyView: 'all', reportPath: '', reportQ: '', reportCategory: 'all', audioStatus: '', speakerTrainingView: 'needs_work', sourceView: 'all', speakerView: 'active', speakerQ: '', speakerSort: 'review', speakerSelectedIds: [], speakerShownIds: [], speakerBulkTarget: '', speakerSamplesFor: 'visible', speakerSampleView: 'all', speakerSampleQ: '', speakerSampleSort: 'needs_work', speakerContextSource: 'idle', speakerSamples: [], fileView: 'all', fileQ: '', recycleView: 'all', recycleQ: '', syncView: 'all', syncQ: '', settingsGroup: 'collectors', settingsQ: '', timelineDate: 'today', timelineQ: '', timelineSource: 'all', timelineType: 'all', todayDate: 'today', todayQ: '', todayFrom: '', todayTo: '', todayCategory: 'all', doctorStatus: 'all', doctorArea: 'all', searchQ: '', searchSource: '', searchQuestion: '' };
+const searchSources = [['','全部来源'], ['personal_memory','personal_memory'], ['mobile','mobile'], ['local_ai','local_ai'], ['report','report'], ['filesystem','filesystem'], ['browser','browser'], ['apple_mail','apple_mail']];
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const escAttr = (s) => String(s ?? '').replace(/\\/g, '\\\\').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, "\\'").replace(/\n/g, ' ');
 const jstr = (s) => JSON.stringify(String(s ?? ''));
+const domId = (s) => String(s ?? '').replace(/[^a-zA-Z0-9_-]/g, '_');
 const status = (s) => {
   const key = String(s || 'info');
   return `<span class="status ${esc(key)}">${esc(t(key))}</span>`;
@@ -1706,6 +1726,7 @@ const sectionTips = {
   inbox: '把录音、快速标注、修复项、项目和说话人待处理集中成一个可清空的处理队列。',
   projects: '按证据自动聚合今天的主题、项目和相关下一步，是行动工作区里的完整项目视图。',
   memory: '把每天的项目聚类和会议结论沉淀为长期项目档案。',
+  personal: '维护用户档案、联系人、确认记忆、候选收件箱、冲突和隐私删除。',
   meeting: '开会时记录议程、笔记和行动项，并回写项目记忆与本地时间线。',
   today: '打开实时日内时间线，合并应用、录音、文件、位置和提醒。',
   overview: '查看系统数据量、健康状态、最近采集和维护入口。',
@@ -1715,6 +1736,7 @@ const sectionTips = {
   search: '对本地资料做关键词搜索、语义检索和证据问答。',
   timeline: '查看原始事件流，适合排查某一天的底层记录。',
   reports: '打开日报、长期摘要、邮件摘要和反馈记录。',
+  personal: '把个人事实、偏好、边界、联系人和候选记忆沉淀成可追溯的长期档案。',
   sources: '检查各数据来源是否开启、最近是否采集，以及缺少哪些前置文件。',
   speakers: '查看说话人聚类、样本、重命名和合并入口。',
   files: '查看文件监控路径、分析状态，并手动扫描新文件。',
@@ -1818,6 +1840,38 @@ let buttonTipObserver = null;
 let activeTipButton = null;
 function toast(msg){ const el=$('toast'); el.textContent=translateText(msg); el.classList.add('show'); setTimeout(()=>el.classList.remove('show'), 6500); }
 async function api(path, opts){ const r=await fetch(path, opts); const j=await r.json(); if(!r.ok) throw new Error(j.error || r.statusText); return j; }
+function hasStoredLanguagePreference(){
+  try { return !!localStorage.getItem(languageStorageKey); }
+  catch { return false; }
+}
+async function syncDashboardLanguagePreference(value, opts={}){
+  const language = normalizeLanguage(value);
+  try {
+    await api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates:[{key:'dashboard.language',value:language}]})});
+  } catch(e) {
+    if(!opts.silent) toast(`Language sync failed\n${String(e)}`);
+  }
+}
+async function syncDashboardLanguageOnLoad(){
+  if(hasStoredLanguagePreference()){
+    await syncDashboardLanguagePreference(activeLanguage, {silent:true});
+    return;
+  }
+  try {
+    const j = await api('/api/settings');
+    const serverLanguage = normalizeLanguage((((j.settings || {}).dashboard || {}).language) || activeLanguage);
+    if(serverLanguage !== activeLanguage){
+      activeLanguage = serverLanguage;
+      state.language = activeLanguage;
+      try { localStorage.setItem(languageStorageKey, activeLanguage); } catch {}
+      nav();
+      await render();
+      localizeDocument();
+      return;
+    }
+  } catch {}
+  await syncDashboardLanguagePreference(activeLanguage, {silent:true});
+}
 function canonicalSection(id){ return id === 'mobile' ? 'sync' : (id === 'suggestions' ? 'inbox' : (id || 'today')); }
 function isKnownSection(id){ return allSections.some(s=>s[0]===id); }
 function nav(){
@@ -2065,6 +2119,7 @@ function setLanguage(value){
   activeLanguage = normalizeLanguage(value);
   state.language = activeLanguage;
   try { localStorage.setItem(languageStorageKey, activeLanguage); } catch {}
+  syncDashboardLanguagePreference(activeLanguage, {silent:false});
   hideButtonTip();
   render().then(() => localizeDocument()).catch(e => toast(String(e)));
 }
@@ -2630,6 +2685,274 @@ async function projectMemoryAction(payload){
   toast(j.ok ? '项目记忆已更新' : '更新失败');
   render();
 }
+async function personalMemory(){
+  const buttons = `<button class="btn" onclick="setPersonalStatus('candidate')">记忆收件箱</button><button class="btn" onclick="setPersonalStatus('confirmed')">确认记忆</button><button class="btn" onclick="generatePersonalCandidates()">生成候选</button><button class="btn primary" onclick="personalMemory()">刷新</button>`;
+  setHeader('个人档案','读取中...', buttons);
+  const params = new URLSearchParams({date: state.personalDate || 'today', status: state.personalStatus || 'confirmed', type: state.personalType || 'all'});
+  if(state.personalQ) params.set('q', state.personalQ);
+  const j = await api('/api/personal-memory?' + params.toString());
+  const summary = j.summary || {};
+  const memories = j.memories || [];
+  const suggested = j.suggested_candidates || [];
+  const people = j.people || [];
+  const conflicts = j.conflicts || [];
+  const privacy = j.privacy || {};
+  window.__personalPayload = j;
+  $('subtitle').textContent = `${summary.profile_entries || 0} profile · ${summary.people || 0} people · ${summary.confirmed || 0} confirmed · ${summary.candidate || 0} candidate · ${summary.open_conflicts || 0} conflicts`;
+  $('view').innerHTML = `
+    <div class="insight-hero">
+      <section class="card">
+        <div class="section-title"><h3>个人档案</h3><span class="muted">${esc(shortDateTime(j.generated_at || ''))}</span></div>
+        <div class="insight-toolbar projects">
+          <input id="personalDate" value="${escAttr(state.personalDate || 'today')}" aria-label="date">
+          <input id="personalQ" value="${escAttr(state.personalQ || '')}" placeholder="搜索个人事实、偏好、人物、证据" onkeydown="personalKey(event)" aria-label="search">
+          <select id="personalType">${personalTypeOptions(state.personalType)}</select>
+          <select id="personalStatus">${personalStatusOptions(state.personalStatus)}</select>
+          <button class="btn primary" onclick="applyPersonalFilters()">查找</button>
+        </div>
+        <div class="quickbar" style="margin-top:10px">${personalStatusPills(summary)}</div>
+        <div class="insight-kpis">
+          ${insightKpi('确认记忆', summary.confirmed || 0, 'answer/report context')}
+          ${insightKpi('候选', summary.candidate || 0, 'needs review')}
+          ${insightKpi('联系人', summary.people || 0, 'people files')}
+          ${insightKpi('冲突', summary.open_conflicts || 0, 'needs decision')}
+        </div>
+      </section>
+      <section class="card">
+        <div class="section-title"><h3>快速写入</h3><span class="muted">manual</span></div>
+        ${personalQuickCreateForm()}
+      </section>
+    </div>
+    <div class="insight-main">
+      <section class="card">
+        <div class="section-title"><h3>${state.personalStatus === 'candidate' ? '记忆收件箱' : '确认记忆'}</h3><span class="muted">${esc(memories.length)} shown</span></div>
+        ${personalMemoryList(memories)}
+      </section>
+      <aside class="insight-side">
+        <section class="card">
+          <div class="section-title"><h3>档案字段</h3><span class="muted">${esc(summary.profile_entries || 0)} entries</span></div>
+          ${profileEditor()}
+          ${profileSectionList((j.profile || {}).sections || [])}
+        </section>
+        <section class="card">
+          <div class="section-title"><h3>候选提取</h3><span class="muted">${esc((summary.suggested || 0))} new</span></div>
+          ${suggestedPersonalList(suggested)}
+        </section>
+        <section class="card">
+          <div class="section-title"><h3>联系人档案</h3><span class="muted">${esc(people.length)} people</span></div>
+          ${personEditor()}
+          ${peopleList(people)}
+        </section>
+        <section class="card">
+          <div class="section-title"><h3>冲突队列</h3><span class="muted">${esc(conflicts.length)} open</span></div>
+          ${conflictList(conflicts)}
+        </section>
+        <section class="card">
+          <div class="section-title"><h3>隐私与删除</h3><span class="muted">local only</span></div>
+          ${personalPrivacyPanel(privacy)}
+        </section>
+      </aside>
+    </div>`;
+}
+function personalQuickCreateForm(){
+  return `<div class="settings-edit-list">
+    <label class="settings-edit-row"><div class="settings-edit-label"><b>记忆类型</b><span>事实、偏好、决定、承诺、关系、节律或边界</span></div><div class="settings-edit-control"><select id="personalNewType">${personalTypeOptions('fact', false)}</select></div></label>
+    <label class="settings-edit-row"><div class="settings-edit-label"><b>标题</b><span>短标题会进入问答证据</span></div><div class="settings-edit-control"><input id="personalNewTitle" placeholder="例如：报告默认要用中文"></div></label>
+    <label class="settings-edit-row"><div class="settings-edit-label"><b>主体</b><span>人物、主题或偏好对象</span></div><div class="settings-edit-control"><input id="personalNewSubject" placeholder="例如：报告格式"></div></label>
+    <label class="settings-edit-row"><div class="settings-edit-label"><b>内容</b><span>确认后的记忆会进入问答和报告上下文</span></div><div class="settings-edit-control"><textarea id="personalNewBody" placeholder="具体要记住什么"></textarea></div></label>
+    <div class="overview-actions"><button class="btn primary" onclick="createPersonalMemory()">写入长期记忆</button></div>
+  </div>`;
+}
+function profileEditor(){
+  return `<details class="compact-details" open><summary>编辑档案字段</summary><div class="compact-details-body">
+    <select id="profileSection">${profileSectionOptions()}</select>
+    <input id="profileLabel" placeholder="字段名，例如 默认语言" style="margin-top:8px">
+    <textarea id="profileValue" placeholder="字段值" style="margin-top:8px"></textarea>
+    <select id="profileSensitivity" style="margin-top:8px">${sensitivityOptions('normal')}</select>
+    <div class="overview-actions" style="margin-top:8px"><button class="btn primary" onclick="saveProfileEntry()">保存档案字段</button></div>
+  </div></details>`;
+}
+function profileSectionList(sections){
+  const nonEmpty = (sections || []).filter(section => (section.entries || []).length);
+  if(!nonEmpty.length) return '<div class="empty-state">还没有个人档案字段。</div>';
+  return `<div class="memory-list" style="margin-top:10px">${nonEmpty.map(section => `<article class="memory-card">
+    <div class="memory-head"><div><div class="memory-title">${esc(section.label || section.id)}</div><div class="item-meta">${esc((section.entries || []).length)} entries</div></div></div>
+    ${(section.entries || []).map(entry => `<div class="insight-state-row"><span><b>${esc(entry.label)}</b><br><span class="muted">${esc(entry.value)}</span></span><button class="btn danger" onclick="deleteProfileEntry('${escAttr(entry.id)}')">删除</button></div>`).join('')}
+  </article>`).join('')}</div>`;
+}
+function personEditor(){
+  return `<details class="compact-details"><summary>新增联系人</summary><div class="compact-details-body">
+    <input id="personName" placeholder="姓名或显示名">
+    <input id="personRelationship" placeholder="关系，例如 同事/学生/家人" style="margin-top:8px">
+    <input id="personOrg" placeholder="组织" style="margin-top:8px">
+    <textarea id="personNotes" placeholder="长期背景、沟通偏好、注意事项" style="margin-top:8px"></textarea>
+    <div class="overview-actions" style="margin-top:8px"><button class="btn primary" onclick="createPerson()">创建联系人</button></div>
+  </div></details>`;
+}
+function personalMemoryList(rows){
+  if(!(rows || []).length) return '<div class="empty-state">当前筛选没有个人记忆。</div>';
+  return `<div class="memory-list">${rows.map(personalMemoryCard).join('')}</div>`;
+}
+function personalMemoryCard(item){
+  const conflict = Number(item.open_conflicts || 0) > 0 ? `<span class="status warn">${esc(item.open_conflicts)} conflict</span>` : '';
+  return `<article class="memory-card ${esc(item.status || '')}">
+    <div class="memory-head">
+      <div>
+        <div class="memory-title">${esc(item.title || '未命名记忆')}</div>
+        <div class="item-meta">${esc(item.memory_type || 'note')} · ${esc(item.status || 'confirmed')} · ${esc(item.sensitivity || 'normal')} · ${esc(shortDateTime(item.updated_at || ''))}</div>
+      </div>
+      <div>${conflict}${status(item.status || 'confirmed')}</div>
+    </div>
+    <div class="memory-body">${esc(item.body || '')}</div>
+    <div class="project-keywords">${[item.subject, item.person_name].filter(Boolean).map(value => `<span class="evidence-chip">${esc(value)}</span>`).join('')}</div>
+    ${personalEvidenceList(item.evidence || [])}
+    <div class="memory-actions">
+      ${item.status !== 'confirmed' ? `<button class="btn primary" onclick="personalMemoryAction({action:'confirm_memory',memory_id:'${escAttr(item.id)}'})">确认</button>` : ''}
+      <button class="btn" data-query="${escAttr(item.title || item.body || '')}" onclick="openInsightSearch(this)">问证据</button>
+      ${item.status !== 'ignored' ? `<button class="btn" onclick="personalMemoryAction({action:'ignore_memory',memory_id:'${escAttr(item.id)}'})">忽略</button>` : ''}
+      <button class="btn" onclick="personalMemoryAction({action:'archive_memory',memory_id:'${escAttr(item.id)}'})">归档</button>
+      <button class="btn danger" onclick="deletePersonalMemory('${escAttr(item.id)}')">彻底删除</button>
+    </div>
+  </article>`;
+}
+function personalEvidenceList(rows){
+  if(!(rows || []).length) return '';
+  return `<details class="insight-evidence"><summary>${esc(rows.length)} evidence</summary><div class="insight-evidence-list">${rows.map(row => `<div class="insight-evidence-row"><b>${esc(row.title || row.source_ref)}</b><div class="muted">${esc(row.source_type || '')} · ${esc(shortDateTime(row.observed_at || ''))}</div><div>${esc(row.snippet || '')}</div></div>`).join('')}</div></details>`;
+}
+function suggestedPersonalList(rows){
+  if(!(rows || []).length) return '<div class="empty-state">今天暂时没有新的候选记忆。</div>';
+  return `<div class="memory-list">${rows.slice(0,8).map(candidate => `<article class="meeting-card ${candidate.already_saved?'ended':''}">
+    <div class="meeting-head"><div><div class="meeting-title">${esc(candidate.title || '候选记忆')}</div><div class="item-meta">${esc(candidate.memory_type || 'note')} · ${esc(candidate.sensitivity || 'normal')} · ${candidate.already_saved ? 'saved ' + esc(candidate.existing_status || '') : 'new'}</div></div></div>
+    <div class="meeting-body">${esc(candidate.body || '')}</div>
+    <div class="meeting-actions">
+      ${candidate.already_saved ? '' : `<button class="btn primary" data-candidate="${escAttr(JSON.stringify(candidate))}" onclick="saveSuggestedPersonal(this)">存入收件箱</button>`}
+      <button class="btn" data-query="${escAttr(candidate.body || candidate.title || '')}" onclick="openInsightSearch(this)">问证据</button>
+    </div>
+  </article>`).join('')}</div>`;
+}
+function peopleList(rows){
+  if(!(rows || []).length) return '<div class="empty-state">还没有联系人档案。</div>';
+  return `<div class="memory-list" style="margin-top:10px">${rows.slice(0,12).map(person => {
+    const sid = domId(person.id);
+    return `<article class="meeting-card">
+      <div class="meeting-head"><div><div class="meeting-title">${esc(person.display_name)}</div><div class="item-meta">${esc(person.relationship || 'person')} · ${esc(person.organization || '')} · ${esc(person.confirmed_memory_count || 0)} memories</div></div>${status(person.status || 'active')}</div>
+      <div class="meeting-body">${esc(person.notes || '')}</div>
+      <div class="project-keywords">${(person.aliases || []).map(alias => `<span class="evidence-chip">${esc(alias.alias)}</span>`).join('')}${(person.speaker_links || []).map(link => `<span class="evidence-chip">Voice ${esc(link.speaker_id)} ${esc(link.speaker_name || '')}</span>`).join('')}</div>
+      <div class="speaker-tool-row" style="margin-top:8px"><input id="alias_${sid}" placeholder="新增别名"><button class="btn" onclick="addPersonAlias('${escAttr(person.id)}')">加别名</button></div>
+      <div class="speaker-tool-row" style="margin-top:8px"><input id="speaker_${sid}" placeholder="说话人 ID"><button class="btn" onclick="linkPersonSpeaker('${escAttr(person.id)}')">链接 Voice</button></div>
+    </article>`;
+  }).join('')}</div>`;
+}
+function conflictList(rows){
+  const open = (rows || []).filter(row => row.status === 'open');
+  if(!open.length) return '<div class="empty-state">没有未解决冲突。</div>';
+  return `<div class="memory-list">${open.slice(0,8).map(row => `<article class="meeting-card">
+    <div class="meeting-head"><div><div class="meeting-title">${esc(row.reason || '记忆冲突')}</div><div class="item-meta">${esc(shortDateTime(row.created_at || ''))}</div></div>${status(row.status)}</div>
+    <div class="meeting-body"><b>A:</b> ${esc(((row.memory || {}).title || ''))}<br><b>B:</b> ${esc(((row.conflicting_memory || {}).title || ''))}</div>
+    <div class="meeting-actions"><button class="btn primary" onclick="resolvePersonalConflict('${escAttr(row.id)}')">标记已处理</button></div>
+  </article>`).join('')}</div>`;
+}
+function personalPrivacyPanel(privacy){
+  const sens = privacy.by_sensitivity || {};
+  const sources = privacy.by_source || [];
+  return `<div class="insight-state-list">
+    ${Object.entries({normal:sens.normal||0, private:sens.private||0, high:sens.high||0}).map(([key,value]) => `<div class="insight-state-row"><span>${esc(key)}</span><span class="queue-value">${esc(value)}</span></div>`).join('')}
+    <div class="privacy-note">个人记忆支持逐条彻底删除；删除会同时移除证据链接和 personal_memory 搜索索引。</div>
+    ${sources.slice(0,5).map(row => `<div class="insight-state-row"><span>${esc(row.source)}</span><span class="queue-value">${esc(row.count)}</span></div>`).join('')}
+  </div>`;
+}
+function personalTypeOptions(current, includeAll=true){
+  const rows = [['all','全部'], ['fact','事实'], ['preference','偏好'], ['decision','决定'], ['commitment','承诺'], ['relationship','关系'], ['rhythm','节律'], ['boundary','边界'], ['project','项目'], ['note','备注']];
+  return rows.filter(([value]) => includeAll || value !== 'all').map(([value,label]) => `<option value="${escAttr(value)}" ${current===value?'selected':''}>${esc(label)}</option>`).join('');
+}
+function personalStatusOptions(current){
+  return [['candidate','候选'], ['confirmed','确认'], ['ignored','忽略'], ['archived','归档'], ['all','全部']].map(([value,label]) => `<option value="${escAttr(value)}" ${current===value?'selected':''}>${esc(label)}</option>`).join('');
+}
+function personalStatusPills(summary){
+  const rows = [['candidate','候选', summary.candidate || 0], ['confirmed','确认', summary.confirmed || 0], ['archived','归档', summary.archived || 0], ['all','全部', (summary.candidate || 0) + (summary.confirmed || 0) + (summary.archived || 0)]];
+  return rows.map(([key,label,count]) => `<button class="filter-pill ${state.personalStatus===key?'active':''}" onclick="setPersonalStatus('${key}')">${esc(label)} <span class="chip-count">${esc(count)}</span></button>`).join('');
+}
+function profileSectionOptions(){
+  return [['identity','身份'], ['work','工作/学习'], ['preferences','偏好'], ['boundaries','边界'], ['rhythm','节律'], ['focus','当前重点']].map(([value,label]) => `<option value="${escAttr(value)}">${esc(label)}</option>`).join('');
+}
+function sensitivityOptions(current){
+  return [['normal','普通'], ['private','私人'], ['high','高敏']].map(([value,label]) => `<option value="${escAttr(value)}" ${current===value?'selected':''}>${esc(label)}</option>`).join('');
+}
+function applyPersonalFilters(){
+  state.personalDate = $('personalDate').value || 'today';
+  state.personalQ = $('personalQ').value;
+  state.personalType = $('personalType').value || 'all';
+  state.personalStatus = $('personalStatus').value || 'confirmed';
+  personalMemory();
+}
+function personalKey(event){
+  if(event.key === 'Enter'){
+    event.preventDefault();
+    applyPersonalFilters();
+  }
+}
+function setPersonalStatus(value){ state.personalStatus = value || 'confirmed'; personalMemory(); }
+async function personalMemoryPost(payload, message){
+  const j = await api('/api/personal-memory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  toast(j.ok ? message : '操作失败');
+  personalMemory();
+}
+async function personalMemoryAction(payload){ return personalMemoryPost(payload, '个人记忆已更新'); }
+async function createPersonalMemory(){
+  return personalMemoryPost({
+    action:'create_memory',
+    status:'confirmed',
+    memory_type:$('personalNewType').value,
+    title:$('personalNewTitle').value,
+    subject:$('personalNewSubject').value,
+    body:$('personalNewBody').value,
+    source:'manual',
+  }, '已写入长期记忆');
+}
+async function saveSuggestedPersonal(button){
+  const candidate = JSON.parse(button.dataset.candidate || '{}');
+  candidate.action = 'create_memory';
+  candidate.status = 'candidate';
+  return personalMemoryPost(candidate, '已存入记忆收件箱');
+}
+async function generatePersonalCandidates(){
+  return personalMemoryPost({action:'generate_candidates',date:state.personalDate || 'today'}, '候选记忆已生成');
+}
+async function saveProfileEntry(){
+  return personalMemoryPost({
+    action:'upsert_profile',
+    section:$('profileSection').value,
+    label:$('profileLabel').value,
+    value:$('profileValue').value,
+    sensitivity:$('profileSensitivity').value,
+  }, '档案字段已保存');
+}
+async function deleteProfileEntry(id){
+  if(askConfirm('删除这个档案字段？')) return personalMemoryPost({action:'delete_profile',id}, '档案字段已删除');
+}
+async function createPerson(){
+  return personalMemoryPost({
+    action:'create_person',
+    display_name:$('personName').value,
+    relationship:$('personRelationship').value,
+    organization:$('personOrg').value,
+    notes:$('personNotes').value,
+  }, '联系人已创建');
+}
+async function addPersonAlias(personId){
+  const value = $(`alias_${domId(personId)}`).value;
+  return personalMemoryPost({action:'add_alias',person_id:personId,alias:value}, '别名已保存');
+}
+async function linkPersonSpeaker(personId){
+  const value = $(`speaker_${domId(personId)}`).value;
+  return personalMemoryPost({action:'link_speaker',person_id:personId,speaker_id:value,status:'confirmed'}, '说话人已链接');
+}
+async function deletePersonalMemory(memoryId){
+  if(askConfirm('彻底删除这条个人记忆及其证据链接？')) return personalMemoryPost({action:'delete_memory',memory_id:memoryId}, '个人记忆已彻底删除');
+}
+async function resolvePersonalConflict(conflictId){
+  return personalMemoryPost({action:'resolve_conflict',conflict_id:conflictId,resolution:'handled_in_dashboard'}, '冲突已标记处理');
+}
 async function meetingMode(){
   const buttons = `<button class="btn" onclick="go('memory')">项目记忆</button><button class="btn" onclick="go('inbox')">处理队列</button><button class="btn primary" onclick="meetingMode()">刷新</button>`;
   setHeader('会议','读取中...', buttons);
@@ -2984,6 +3307,7 @@ async function render(){
   if(state.section==='suggestions') return suggestionInbox();
   if(state.section==='projects') return projectsWorkbench();
   if(state.section==='memory') return projectMemory();
+  if(state.section==='personal') return personalMemory();
   if(state.section==='meeting') return meetingMode();
   if(state.section==='today') return today();
   if(state.section==='overview') return overview();
@@ -4482,7 +4806,7 @@ async function runTrainingAction(button){
 }
 async function runTrainingPayloadAction(payload){
   if(!payload.name) return;
-  if(payload.name === 'speaker_auto_organize' && !askConfirm(`执行自动整理会按当前配置阈值 ${formatScore(speakerAutoMergeThreshold())} 合并相似 Voice 并隐藏低相似未命名 Voice，继续？`)) return;
+  if(payload.name === 'speaker_auto_organize' && !askConfirm(`执行自动整理会按当前配置阈值 ${formatScore(speakerAutoMergeThreshold())} 合并相似未命名 Voice；命名说话人只进入人工候选，并隐藏低相似未命名 Voice，继续？`)) return;
   await action(payload.name, payload.args || {});
 }
 async function runSpeakerTrainingCycle(){
@@ -5167,7 +5491,7 @@ function renameSelectedSpeaker(){
 }
 function autoOrganizeSpeakers(){
   const threshold = speakerAutoMergeThreshold();
-  if(askConfirm(`自动整理相似声音：按当前配置阈值 ${formatScore(threshold)} 自动合并相似声音，并把低相似未命名 Voice 隐藏到单独筛选里？`)){
+  if(askConfirm(`自动整理相似声音：按当前配置阈值 ${formatScore(threshold)} 自动合并相似未命名 Voice；命名说话人只进入人工候选，并把低相似未命名 Voice 隐藏到单独筛选里？`)){
     action('speaker_auto_organize',{});
   }
 }
@@ -6509,7 +6833,7 @@ function settingsLanguagePanel(){
         <select id="dashboardLanguage" onchange="setLanguage(this.value)" aria-label="Interface language">${languageOptions()}</select>
       </div>
     </label>
-    <div class="settings-edit-note">初始语言为英语，切换会保存在此浏览器。</div>
+    <div class="settings-edit-note">切换会保存在此浏览器，并同步为日报/周报邮件语言。</div>
   </section>`;
 }
 function settingsEditPanel(group, cfg, editable){
@@ -6631,6 +6955,15 @@ function settingsMaintenancePanel(cfg){
 }
 function settingsGroups(cfg){
   const groups = [];
+  const dashboard = cfg.dashboard || {};
+  const dashboardLang = normalizeLanguage(dashboard.language || activeLanguage);
+  groups.push(settingsGroup('dashboard', dashboard, {
+    label: 'Dashboard',
+    status: supportedLanguages.find(([code]) => code === dashboardLang)?.[1] || dashboardLang,
+    statusClass: 'info',
+    summary: '界面语言，也会作为日报和周报邮件的输出语言。',
+    items: [['language', dashboardLang]],
+  }));
   const collectors = cfg.collectors || {};
   const collectorEntries = Object.entries(collectors);
   const collectorEnabled = collectorEntries.filter(([,enabled]) => !!enabled).length;
@@ -6712,7 +7045,31 @@ function settingsGroups(cfg){
     summary: '分析后暂存文件的保留时间、清理和恢复边界。',
   }));
   groups.push(settingsGroup('retention', cfg.retention || {}, { label: '长期保留', summary: '日报、周报、月报和旧记录清理窗口。' }));
-  groups.push(settingsGroup('email_reports', cfg.email_reports || {}, { label: '邮件报告', summary: '摘要邮件发送时间、SMTP 和 Keychain 配置。' }));
+  const personalMemory = cfg.personal_memory || {};
+  groups.push(settingsGroup('personal_memory', personalMemory, {
+    label: '个人记忆',
+    status: personalMemory.enabled === false ? '关闭' : '开启',
+    statusClass: personalMemory.enabled === false ? 'disabled' : 'ok',
+    tone: personalMemory.enabled === false ? 'disabled' : 'ok',
+    summary: '个人档案、候选记忆、确认记忆、Q&A 上下文和高敏确认规则。',
+    items: [
+      ['候选来源', Array.isArray(personalMemory.candidate_sources) ? personalMemory.candidate_sources.join(', ') : '-'],
+      ['Q&A', formatBool(personalMemory.qa_include_confirmed !== false)],
+      ['候选上限', personalMemory.max_candidates_per_day || '-'],
+    ],
+  }));
+  const emailReports = cfg.email_reports || {};
+  groups.push(settingsGroup('email_reports', emailReports, {
+    label: '邮件报告',
+    summary: '摘要邮件发送时间、SMTP、Keychain 和日报/周报模型配置。',
+    items: [
+      ['daily_model', emailReports.daily_model || emailReports.model || '-'],
+      ['weekly_model', emailReports.weekly_model || emailReports.model || '-'],
+      ['fallback_model', emailReports.fallback_model || '-'],
+      ['timeout_s', emailReports.ollama_timeout_seconds || '-'],
+      ['ai_highlights', formatBool(emailReports.ai_highlights)],
+    ],
+  }));
   groups.push(settingsGroup('watch_paths', cfg.watch_paths || [], {
     label: '监控路径',
     status: `${Array.isArray(cfg.watch_paths) ? cfg.watch_paths.length : 0} 条`,
@@ -6862,6 +7219,7 @@ function settingsGroupLabel(key){
     collectors:'采集器',
     agent:'后台 Agent',
     retention:'长期保留',
+    personal_memory:'个人记忆',
     email_reports:'邮件报告',
     file_analysis:'文件分析',
     recycle_bin:'回收箱',
@@ -6998,7 +7356,7 @@ function routeHash(){
   }
 }
 window.addEventListener('hashchange', routeHash);
-window.addEventListener('load',()=>{ const raw=location.hash.slice(1); const hash=canonicalSection(raw); if(isKnownSection(hash)){ state.section=hash; if(raw && raw !== hash) history.replaceState(null,'','#'+hash); } nav(); startButtonTips(); startLocalization(); render().catch(e=>toast(String(e))); });
+window.addEventListener('load',()=>{ const raw=location.hash.slice(1); const hash=canonicalSection(raw); if(isKnownSection(hash)){ state.section=hash; if(raw && raw !== hash) history.replaceState(null,'','#'+hash); } nav(); startButtonTips(); startLocalization(); syncDashboardLanguageOnLoad().catch(()=>{}); render().catch(e=>toast(String(e))); });
 </script>
 </body>
 </html>"""

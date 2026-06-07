@@ -8,6 +8,7 @@ from typing import Any
 
 from .config import Settings
 from .observation_filters import visible_observations
+from .personal_memory import personal_context_report_lines
 from .store import Store
 from .timeutil import day_bounds, local_iso
 
@@ -196,6 +197,10 @@ def build_daily_report(settings: Settings, store: Store, day: date) -> str:
         top_domains = ", ".join(f"{domain} ({count})" for domain, count in web_domains.most_common(8))
         lines.append(f"- Top web domains: {top_domains}")
     lines.append("")
+
+    personal_context = personal_context_report_lines(settings, store)
+    if personal_context:
+        lines.extend(personal_context)
 
     if activity:
         lines.append("## App Timeline")

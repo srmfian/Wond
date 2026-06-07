@@ -12,7 +12,15 @@ from .audio_preprocessing import audio_preprocessing_config, audio_quality, crea
 from .config import Settings
 from .executables import find_executable
 from .openai_analysis import parse_structured_transcript_text, transcript_text_from_segments
-from .speaker_identity import embedding_model_key, parse_vector, refresh_identity_status, relocate_sample_after_merge, speaker_embedding, update_speaker_identity_for_sample
+from .speaker_identity import (
+    embedding_model_key,
+    parse_vector,
+    refresh_identity_status,
+    relocate_sample_after_merge,
+    speaker_cluster_match_eligible,
+    speaker_embedding,
+    update_speaker_identity_for_sample,
+)
 from .store import Store
 from .timeutil import utc_iso
 
@@ -188,6 +196,7 @@ class SpeakerAutoOrganizeResult:
     threshold: float
     scanned_pairs: int = 0
     merge_candidates: int = 0
+    review_candidates: int = 0
     merge_rounds: int = 0
     merged_speakers: int = 0
     hidden_speakers: int = 0
@@ -201,6 +210,7 @@ class SpeakerAutoOrganizeResult:
             f"Threshold: {self.threshold:.3f}",
             f"Scanned pairs: {self.scanned_pairs}",
             f"Merge candidates: {self.merge_candidates}",
+            f"Manual review candidates: {self.review_candidates}",
             f"Merge rounds: {self.merge_rounds}",
             f"Merged speakers: {self.merged_speakers}",
             f"Hidden low-similarity speakers: {self.hidden_speakers}",
@@ -2977,10 +2987,10 @@ def auto_organize_speakers(
     merge_threshold = float(threshold if threshold is not None else settings.speaker_recognition.get("auto_merge_threshold", 0.68))
     result = SpeakerAutoOrganizeResult(threshold=merge_threshold)
     affected_speaker_ids: set[int] = set()
+    review_candidate_speaker_ids: set[int] = set()
     merge_budget = max(0, int(max_merges))
 
     while result.merged_speakers < merge_budget:
-        remaining_budget = merge_budget - result.merged_speakers
         rows = {int(row["id"]): row for row in store.list_speakers()}
         vectors_by_speaker = speaker_vectors_by_speaker(store, model=model)
         candidates = speaker_merge_candidates(rows, vectors_by_speaker, threshold=merge_threshold)
@@ -2988,7 +2998,7 @@ def auto_organize_speakers(
         result.merge_candidates += len(candidates)
         if not candidates:
             break
-        selected_candidates = disjoint_speaker_merge_candidates(candidates, max_pairs=remaining_budget)
+        selected_candidates = disjoint_speaker_merge_candidates(candidates, max_pairs=len(candidates))
         if not selected_candidates:
             break
         result.merge_rounds += 1
@@ -2999,12 +3009,37 @@ def auto_organize_speakers(
             )
 
         round_failed = False
+        round_merges = 0
         for candidate in selected_candidates:
+            if result.merged_speakers >= merge_budget:
+                break
             source_id, target_id = choose_auto_merge_direction(rows, int(candidate["left_id"]), int(candidate["right_id"]))
             source = rows[source_id]
             target = rows[target_id]
             source_samples = store.list_speaker_samples(source_id)
             try:
+                if auto_merge_requires_manual_review(source, target):
+                    recorded = record_auto_merge_candidate_for_review(
+                        store,
+                        source_id=source_id,
+                        target_id=target_id,
+                        model=model,
+                        candidate=candidate,
+                        threshold=merge_threshold,
+                        merge_round=result.merge_rounds,
+                        source=source,
+                        target=target,
+                    )
+                    review_candidate_speaker_ids.update({source_id, target_id})
+                    if recorded:
+                        result.review_candidates += 1
+                        if len(result.messages) < 40:
+                            result.messages.append(
+                                "- Queued manual review candidate "
+                                f"{speaker_label(source)} -> {speaker_label(target)} "
+                                f"score={candidate['score']:.3f}."
+                            )
+                    continue
                 store.record_speaker_match_decision(
                     source_speaker_id=source_id,
                     target_speaker_id=target_id,
@@ -3030,6 +3065,7 @@ def auto_organize_speakers(
                     round_failed = True
                     break
                 result.merged_speakers += 1
+                round_merges += 1
                 result.moved_sample_files += moved_files
                 affected_speaker_ids.add(target_id)
                 mark_auto_merge_pending_review(
@@ -3053,11 +3089,15 @@ def auto_organize_speakers(
                 break
         if round_failed:
             break
+        if round_merges == 0:
+            break
 
     if hide_unmatched:
         for row in store.list_speakers():
             speaker_id = int(row["id"])
             if speaker_id in affected_speaker_ids:
+                continue
+            if speaker_id in review_candidate_speaker_ids:
                 continue
             if should_hide_unmatched_speaker(row):
                 if mark_speaker_hidden(store, row, threshold=merge_threshold):
@@ -3072,7 +3112,7 @@ def auto_organize_speakers(
     for line in refresh.messages[:8]:
         if len(result.messages) < 50:
             result.messages.append(line)
-    if result.merged_speakers == 0 and result.hidden_speakers == 0:
+    if result.merged_speakers == 0 and result.hidden_speakers == 0 and result.review_candidates == 0:
         result.messages.append("- No speakers needed automatic merge or hiding.")
     return result
 
@@ -3161,9 +3201,13 @@ def speaker_merge_candidates(
         left = centroids[left_id]
         if left is None:
             continue
+        if not speaker_cluster_match_eligible(speaker_rows[left_id], threshold=threshold):
+            continue
         for right_id in ids[index + 1 :]:
             right = centroids[right_id]
             if right is None or len(left) != len(right):
+                continue
+            if not speaker_cluster_match_eligible(speaker_rows[right_id], threshold=threshold):
                 continue
             if not auto_merge_pair_allowed(speaker_rows[left_id], speaker_rows[right_id]):
                 continue
@@ -3189,6 +3233,68 @@ def auto_merge_pair_allowed(left: Any, right: Any) -> bool:
     right_status = speaker_review_status(right)
     if left_status == "confirmed" and right_status == "confirmed":
         return False
+    return True
+
+
+def auto_merge_requires_manual_review(left: Any, right: Any) -> bool:
+    return speaker_protected_from_auto_merge(left) or speaker_protected_from_auto_merge(right)
+
+
+def speaker_protected_from_auto_merge(row: Any) -> bool:
+    review_status = speaker_review_status(row)
+    identity_status = str(row["identity_status"] or "").strip()
+    return review_status in {"confirmed", "auto_merged_pending_review", "needs_review"} or identity_status in {
+        "named",
+        "confirmed",
+        "accepted",
+    }
+
+
+def record_auto_merge_candidate_for_review(
+    store: Store,
+    *,
+    source_id: int,
+    target_id: int,
+    model: str,
+    candidate: dict[str, Any],
+    threshold: float,
+    merge_round: int,
+    source: Any,
+    target: Any,
+) -> bool:
+    existing = store.conn.execute(
+        """
+        SELECT id
+        FROM speaker_match_decisions
+        WHERE status IN ('candidate', 'auto_merged_pending_review')
+          AND (
+            (source_speaker_id = ? AND target_speaker_id = ?)
+            OR (source_speaker_id = ? AND target_speaker_id = ?)
+          )
+        LIMIT 1
+        """,
+        (source_id, target_id, target_id, source_id),
+    ).fetchone()
+    if existing is not None:
+        return False
+    store.record_speaker_match_decision(
+        source_speaker_id=source_id,
+        target_speaker_id=target_id,
+        sample_id=None,
+        model=model,
+        score=float(candidate["score"]),
+        threshold=threshold,
+        status="candidate",
+        metadata={
+            "decision": "manual_review_required_for_named_or_confirmed_speaker",
+            "workflow": "auto_organize_speakers",
+            "merge_round": merge_round,
+            "left_speaker_id": candidate["left_id"],
+            "right_speaker_id": candidate["right_id"],
+            "source_sample_count": source["sample_count"],
+            "target_sample_count": target["sample_count"],
+        },
+    )
     return True
 
 

@@ -20,6 +20,7 @@ from .dashboard_shared import (
     search_keywords,
 )
 from .observation_filters import is_project_owned_path, project_owned_roots, resolved_path, visible_observations
+from .personal_memory import memory_payload, personal_memory_search_rows
 from .store import Store
 from .timeutil import now
 
@@ -40,6 +41,11 @@ SEARCH_INDEX_SOURCE_PRIORITIES: dict[tuple[str, str], int] = {
     ("messages", "message"): 86,
     ("mobile", "location_sample"): 82,
     ("report", "reports"): 58,
+    ("personal_memory", "fact"): 56,
+    ("personal_memory", "preference"): 56,
+    ("personal_memory", "relationship"): 56,
+    ("personal_memory", "commitment"): 56,
+    ("personal_profile", "profile"): 54,
     ("browser", "web_visit"): 34,
     ("filesystem", "file_modified"): 22,
     ("system", "collector_error"): 10,
@@ -463,6 +469,8 @@ def search_documents(settings: Settings, store: Store, *, source: str = "", limi
                 docs.append(doc)
     if not source or source == "report":
         docs.extend(report_search_documents(settings, limit=limit))
+    if not source or source == "personal_memory":
+        docs.extend(personal_memory_search_documents(settings, store, limit=limit))
     if model:
         docs = sort_search_documents_for_indexing(docs, search_indexed_keys(store, model))
     else:
@@ -529,6 +537,69 @@ def report_search_documents(settings: Settings, *, limit: int) -> list[SearchDoc
             if len(docs) >= limit:
                 return docs
     return docs
+
+
+def personal_memory_search_documents(settings: Settings, store: Store, *, limit: int) -> list[SearchDocument]:
+    docs: list[SearchDocument] = []
+    if limit <= 0:
+        return docs
+    for row in personal_memory_search_rows(store, limit=limit):
+        payload = memory_payload(store, row)
+        evidence = payload.get("evidence") or []
+        text = "\n".join(
+            str(part)
+            for part in (
+                payload.get("title"),
+                payload.get("subject"),
+                payload.get("body"),
+                "; ".join(str(item.get("snippet") or "") for item in evidence[:3]),
+            )
+            if part
+        )
+        if not text.strip():
+            continue
+        docs.append(
+            SearchDocument(
+                record_type="personal_memory",
+                record_key=str(payload["id"]),
+                title=str(payload.get("title") or "Personal memory"),
+                text=compact(text, search_chunk_chars(settings)),
+                observed_at=payload.get("updated_at"),
+                source="personal_memory",
+                kind=str(payload.get("memory_type") or "note"),
+                payload=payload,
+            )
+        )
+    for row in store.conn.execute(
+        """
+        SELECT *
+        FROM personal_profile_entries
+        WHERE status = 'active'
+        ORDER BY updated_at DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall():
+        docs.append(
+            SearchDocument(
+                record_type="personal_profile",
+                record_key=str(row["id"]),
+                title=f"Personal profile: {row['label']}",
+                text=compact(f"{row['section']} {row['label']} {row['value']}", search_chunk_chars(settings)),
+                observed_at=row["updated_at"],
+                source="personal_profile",
+                kind="profile",
+                payload={
+                    "id": row["id"],
+                    "section": row["section"],
+                    "label": row["label"],
+                    "value": row["value"],
+                    "sensitivity": row["sensitivity"],
+                    "updated_at": row["updated_at"],
+                },
+            )
+        )
+    return docs[:limit]
 
 
 def index_search_documents(

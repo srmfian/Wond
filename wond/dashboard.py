@@ -107,6 +107,7 @@ from .insights import (
     speaker_quality_payload,
 )
 from .observation_filters import visible_observations
+from .personal_memory import personal_context_semantic_items, personal_memory_payload, personal_memory_post
 from .project_memory import meeting_mode_payload, meeting_mode_post, project_memory_payload, project_memory_post
 from .privacy import privacy_center_payload
 from .recycle_bin import list_recycle_bin, purge_recycle_bin, recycle_bin_config, recycle_bin_summary
@@ -207,6 +208,9 @@ def make_handler(settings: Settings):
                 return
             if parsed.path == "/api/project-memory":
                 self.send_json(project_memory_payload(request_settings, query(parsed)))
+                return
+            if parsed.path == "/api/personal-memory":
+                self.send_json(personal_memory_payload(request_settings, query(parsed)))
                 return
             if parsed.path == "/api/meeting-mode":
                 self.send_json(meeting_mode_payload(request_settings, query(parsed)))
@@ -318,6 +322,10 @@ def make_handler(settings: Settings):
                     return
                 if parsed.path == "/api/project-memory":
                     result, status = project_memory_post(request_settings, payload)
+                    self.send_json(result, status)
+                    return
+                if parsed.path == "/api/personal-memory":
+                    result, status = personal_memory_post(request_settings, payload)
                     self.send_json(result, status)
                     return
                 if parsed.path == "/api/meeting-mode":
@@ -797,9 +805,11 @@ def api_ask(settings: Settings, payload: dict[str, Any]) -> dict[str, Any]:
             search_reports(settings, question, limit=5),
             limit=8,
         )
+        personal_items = personal_context_semantic_items(settings, store, question)
     finally:
         store.close()
-    context = build_answer_context(observations, reports, semantic.get("items", []))
+    semantic_items = [*personal_items, *semantic.get("items", [])]
+    context = build_answer_context(observations, reports, semantic_items)
     if not context.strip():
         resolved = relative_days_summary(relative_days)
         if resolved:
@@ -837,8 +847,8 @@ def api_ask(settings: Settings, payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "ok": True,
         "answer": answer,
-        "citations": answer_citations(observations, reports, semantic.get("items", [])),
-        "evidence_groups": evidence_groups_payload(observations, reports, semantic.get("items", [])),
+        "citations": answer_citations(observations, reports, semantic_items),
+        "evidence_groups": evidence_groups_payload(observations, reports, semantic_items),
         "retrieval": {key: value for key, value in semantic.items() if key != "items"},
         "time_context": ask_time_context(clock),
         "mode": mode,
@@ -1862,6 +1872,7 @@ def editable_field(path: str, field_type: str, label: str, **extra: Any) -> dict
 
 def editable_settings_schema() -> list[dict[str, Any]]:
     return [
+        editable_field("dashboard.language", "choice", "界面语言", options=["en", "zh", "ja", "ko"]),
         editable_field("timezone", "string", "时区", format="timezone", placeholder="Asia/Tokyo"),
         editable_field("collectors.foreground_app", "bool", "采集前台 App"),
         editable_field("collectors.calendar", "bool", "采集日历"),
@@ -1896,6 +1907,14 @@ def editable_settings_schema() -> list[dict[str, Any]]:
         editable_field("retention.agent_logs_max_mb", "int", "单个日志最大体积", min=1, max=1024, unit="MB"),
         editable_field("retention.require_daily_summary_before_prune", "bool", "清理前要求日报存在"),
         editable_field("retention.vacuum_after_prune", "bool", "清理后压缩数据库"),
+        editable_field("personal_memory.enabled", "bool", "启用个人记忆"),
+        editable_field("personal_memory.candidate_sources", "list_string", "候选提取来源", rows=6, placeholder="mobile\napple_mail\nmessages"),
+        editable_field("personal_memory.max_candidates_per_day", "int", "每日候选上限", min=1, max=80),
+        editable_field("personal_memory.qa_include_confirmed", "bool", "问答读取确认记忆"),
+        editable_field("personal_memory.qa_include_profile", "bool", "问答读取个人档案"),
+        editable_field("personal_memory.qa_memory_limit", "int", "问答记忆上限", min=1, max=40),
+        editable_field("personal_memory.high_sensitivity_requires_confirmation", "bool", "高敏必须确认"),
+        editable_field("personal_memory.auto_link_speakers", "bool", "自动链接说话人"),
         editable_field("file_analysis.enabled", "bool", "启用文件分析"),
         editable_field("file_analysis.scan_interval_seconds", "int", "扫描间隔", min=10, max=86400, unit="s"),
         editable_field("file_analysis.stability_seconds", "int", "文件稳定等待", min=0, max=3600, unit="s"),
@@ -2029,9 +2048,14 @@ def editable_settings_schema() -> list[dict[str, Any]]:
         editable_field("email_reports.retry_after_seconds", "int", "重试间隔", min=60, max=86400, unit="s"),
         editable_field("email_reports.send_window_seconds", "int", "发送窗口", min=60, max=86400, unit="s"),
         editable_field("email_reports.ai_highlights", "bool", "AI 亮点"),
+        editable_field("email_reports.model", "string", "邮件摘要模型", placeholder="qwen3.5:35b"),
+        editable_field("email_reports.fallback_model", "string", "邮件备用模型", placeholder="qwen3.5:35b"),
+        editable_field("email_reports.daily_model", "string", "日报模型", placeholder="qwen3.5:35b"),
+        editable_field("email_reports.weekly_model", "string", "周报模型", placeholder="qwen3.5:35b"),
         editable_field("email_reports.daily_highlight_items", "int", "日报亮点数", min=1, max=50),
         editable_field("email_reports.weekly_highlight_items", "int", "周报亮点数", min=1, max=100),
         editable_field("email_reports.highlight_source_max_chars", "int", "亮点来源最大字符", min=1000, max=500000),
+        editable_field("email_reports.ollama_timeout_seconds", "int", "邮件 Ollama 超时", min=60, max=21600, unit="s"),
     ]
 
 

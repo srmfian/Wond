@@ -225,9 +225,24 @@ def analyze_document_with_openai(settings: Settings, path: Path, *, prompt: str 
     return create_response(settings, content)
 
 
-def summarize_text(settings: Settings, text: str, *, prompt: str, label: str) -> str:
+def summarize_text(
+    settings: Settings,
+    text: str,
+    *,
+    prompt: str,
+    label: str,
+    model: str | None = None,
+    timeout_seconds: int | None = None,
+) -> str:
     if use_local_ai(settings):
-        return summarize_text_with_local_ai(settings, text, prompt=prompt, label=label)
+        return summarize_text_with_local_ai(
+            settings,
+            text,
+            prompt=prompt,
+            label=label,
+            model=model,
+            timeout_seconds=timeout_seconds,
+        )
     content = [
         {
             "type": "input_text",
@@ -428,6 +443,7 @@ def summarize_text_with_local_ai(
     prompt: str,
     label: str,
     model: str | None = None,
+    timeout_seconds: int | None = None,
 ) -> str:
     max_chars = int(settings.local_ai.get("max_text_chars", 30000))
     clipped = text[:max_chars]
@@ -437,6 +453,7 @@ def summarize_text_with_local_ai(
         settings,
         model=model or local_text_model(settings),
         prompt=f"{prompt}\n\n{label}\n\nTranscript/content:\n{clipped}",
+        timeout_seconds=timeout_seconds,
     )
 
 
@@ -1465,6 +1482,7 @@ def ollama_chat(
     model: str,
     prompt: str,
     images: list[str] | None = None,
+    timeout_seconds: int | None = None,
 ) -> str:
     disable_thinking = bool(settings.local_ai.get("disable_thinking", True))
     content = f"/no_think\n{prompt}" if disable_thinking else prompt
@@ -1493,7 +1511,7 @@ def ollama_chat(
     try:
         with urllib.request.urlopen(
             request,
-            timeout=int(settings.local_ai.get("ollama_timeout_seconds", 600)),
+            timeout=timeout_seconds or int(settings.local_ai.get("ollama_timeout_seconds", 600)),
         ) as response:
             response_payload = json.loads(response.read().decode("utf-8", errors="replace"))
     except urllib.error.HTTPError as exc:

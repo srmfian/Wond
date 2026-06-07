@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from wond.speaker_identity import best_existing_speaker_match
+from wond.speaker_identity import best_existing_speaker_match, update_speaker_identity_for_sample
 from wond.speakers import (
     auto_organize_speakers,
     best_sample_segment,
@@ -615,6 +615,113 @@ class SpeakerProcessingTests(unittest.TestCase):
         self.assertEqual(centroid_match.matcher, "centroid")
         self.assertLess(centroid_match.score, 0.8)
 
+    def test_existing_match_skips_needs_review_named_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(Path(tmp) / "test.sqlite3")
+            try:
+                target = store.ensure_speaker_for_alias("obs:1:target", default_name="Speaker 1", label="Speaker 1")
+                target_id = int(target["id"])
+                store.rename_speaker(target_id, "Alice")
+                sample = store.add_speaker_sample(
+                    speaker_id=target_id,
+                    observation_id=None,
+                    source_key="target-sample",
+                    media_path=None,
+                    sample_path=None,
+                    start_seconds=0.0,
+                    end_seconds=1.0,
+                    transcript="target",
+                    metadata={},
+                )
+                model = "speechbrain_ecapa:speechbrain/spkrec-ecapa-voxceleb"
+                store.add_speaker_embedding(
+                    speaker_id=target_id,
+                    sample_id=int(sample["id"]),
+                    model=model,
+                    vector=[1.0, 0.0],
+                    metadata={},
+                )
+                mark_speaker_review_status(store, speaker_ids=[target_id], status="unhidden")
+                settings = SimpleNamespace(speaker_recognition={"candidate_threshold": 0.68})
+
+                match = best_existing_speaker_match(settings, store, model=model, speaker_id=999, vector=[1.0, 0.0])
+            finally:
+                store.close()
+
+        self.assertIsNone(match)
+
+    def test_identity_update_does_not_auto_merge_into_needs_review_named_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sample_dir = root / "speaker_samples" / "speaker-000002"
+            sample_dir.mkdir(parents=True)
+            sample_file = sample_dir / "sample.m4a"
+            sample_file.write_bytes(b"audio")
+            settings = SimpleNamespace(
+                speaker_recognition={
+                    "auto_merge_threshold": 0.68,
+                    "candidate_threshold": 0.68,
+                },
+                speaker_sample_dir=root / "speaker_samples",
+            )
+            store = Store(root / "test.sqlite3")
+            try:
+                target = store.ensure_speaker_for_alias("obs:1:target", default_name="Speaker 1", label="Speaker 1")
+                source = store.ensure_speaker_for_alias("obs:1:source", default_name="Speaker 2", label="Speaker 2")
+                target_id = int(target["id"])
+                source_id = int(source["id"])
+                store.rename_speaker(target_id, "Alice")
+                target_sample = store.add_speaker_sample(
+                    speaker_id=target_id,
+                    observation_id=None,
+                    source_key="target-sample",
+                    media_path=None,
+                    sample_path=None,
+                    start_seconds=0.0,
+                    end_seconds=1.0,
+                    transcript="target",
+                    metadata={},
+                )
+                source_sample = store.add_speaker_sample(
+                    speaker_id=source_id,
+                    observation_id=None,
+                    source_key="source-sample",
+                    media_path=None,
+                    sample_path=str(sample_file),
+                    start_seconds=0.0,
+                    end_seconds=1.0,
+                    transcript="source",
+                    metadata={},
+                )
+                model = "speechbrain_ecapa:speechbrain/spkrec-ecapa-voxceleb"
+                store.add_speaker_embedding(
+                    speaker_id=target_id,
+                    sample_id=int(target_sample["id"]),
+                    model=model,
+                    vector=[1.0, 0.0],
+                    metadata={},
+                )
+                mark_speaker_review_status(store, speaker_ids=[target_id], status="unhidden")
+
+                with patch("wond.speaker_identity.speaker_embedding", return_value=[1.0, 0.0]):
+                    result = update_speaker_identity_for_sample(
+                        settings,
+                        store,
+                        speaker_id=source_id,
+                        sample_id=int(source_sample["id"]),
+                        sample_path=str(sample_file),
+                    )
+                source_after = store.get_speaker(source_id)
+                target_after = store.get_speaker(target_id)
+                matches = store.list_speaker_match_decisions()
+            finally:
+                store.close()
+
+        self.assertEqual(result.status, "new_identity")
+        self.assertIsNotNone(source_after)
+        self.assertIsNotNone(target_after)
+        self.assertEqual(len(matches), 0)
+
     def test_repair_missing_speaker_embeddings_supports_preview_and_apply(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -945,7 +1052,7 @@ class SpeakerProcessingTests(unittest.TestCase):
                 source_id = int(source["id"])
                 hidden_id = int(hidden["id"])
                 named_id = int(named_singleton["id"])
-                store.rename_speaker(target_id, "Alice")
+                target_name = str(target["display_name"])
                 store.rename_speaker(named_id, "Bob")
                 for speaker_id, key in [
                     (target_id, "target"),
@@ -993,13 +1100,135 @@ class SpeakerProcessingTests(unittest.TestCase):
         self.assertEqual(result.merged_speakers, 1)
         self.assertEqual(result.hidden_speakers, 1)
         self.assertIsNone(source_after)
-        self.assertEqual(merged["display_name"], "Alice")
+        self.assertEqual(merged["display_name"], target_name)
         self.assertEqual(merged_metadata["speaker_review_status"], "auto_merged_pending_review")
         self.assertEqual(merged_metadata["auto_merge_sources"][-1]["source_speaker_id"], source_id)
         self.assertEqual(hidden_metadata["speaker_review_status"], "low_similarity_hidden")
         self.assertTrue(hidden_metadata["speaker_hidden"])
         self.assertNotEqual(named_metadata.get("speaker_review_status"), "low_similarity_hidden")
         self.assertEqual(matches[0]["status"], "auto_merged_pending_review")
+
+    def test_auto_organize_skips_unconfirmed_named_speaker_match(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = SimpleNamespace(
+                speaker_recognition={"auto_merge_threshold": 0.68},
+                speaker_sample_dir=root / "speaker_samples",
+            )
+            store = Store(root / "test.sqlite3")
+            try:
+                target = store.ensure_speaker_for_alias("obs:1:target", default_name="Speaker 1", label="Speaker 1")
+                source = store.ensure_speaker_for_alias("obs:1:source", default_name="Speaker 2", label="Speaker 2")
+                target_id = int(target["id"])
+                source_id = int(source["id"])
+                store.rename_speaker(target_id, "Alice")
+                for speaker_id, key in [(target_id, "target"), (source_id, "source")]:
+                    sample = store.add_speaker_sample(
+                        speaker_id=speaker_id,
+                        observation_id=None,
+                        source_key=f"sample-{key}",
+                        media_path=None,
+                        sample_path=None,
+                        start_seconds=0.0,
+                        end_seconds=1.0,
+                        transcript=key,
+                        metadata={},
+                    )
+                    vector = {"target": [1.0, 0.0], "source": [0.9, 0.1]}[key]
+                    store.add_speaker_embedding(
+                        speaker_id=speaker_id,
+                        sample_id=int(sample["id"]),
+                        model="speechbrain_ecapa:speechbrain/spkrec-ecapa-voxceleb",
+                        vector=vector,
+                        metadata={},
+                    )
+
+                result = auto_organize_speakers(settings, store, threshold=0.68, hide_unmatched=False)
+                target_after = store.get_speaker(target_id)
+                source_after = store.get_speaker(source_id)
+                target_metadata = json.loads(target_after["metadata"])
+                source_metadata = json.loads(source_after["metadata"])
+                matches = store.list_speaker_match_decisions()
+                speaker_counts = {int(row["id"]): int(row["sample_count"] or 0) for row in store.list_speakers()}
+            finally:
+                store.close()
+
+        self.assertEqual(result.merged_speakers, 0)
+        self.assertEqual(result.review_candidates, 0)
+        self.assertEqual(result.hidden_speakers, 0)
+        self.assertIsNotNone(source_after)
+        self.assertEqual(speaker_counts[target_id], 1)
+        self.assertEqual(speaker_counts[source_id], 1)
+        self.assertNotEqual(target_metadata.get("speaker_review_status"), "auto_merged_pending_review")
+        self.assertNotEqual(source_metadata.get("speaker_review_status"), "low_similarity_hidden")
+        self.assertEqual(matches, [])
+
+    def test_auto_organize_skips_low_confidence_mixed_cluster_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = SimpleNamespace(
+                speaker_recognition={"auto_merge_threshold": 0.68, "candidate_threshold": 0.68},
+                speaker_sample_dir=root / "speaker_samples",
+            )
+            store = Store(root / "test.sqlite3")
+            try:
+                mixed = store.ensure_speaker_for_alias("obs:1:mixed", default_name="Speaker 1", label="Speaker 1")
+                source = store.ensure_speaker_for_alias("obs:1:source", default_name="Speaker 2", label="Speaker 2")
+                mixed_id = int(mixed["id"])
+                source_id = int(source["id"])
+                model = "speechbrain_ecapa:speechbrain/spkrec-ecapa-voxceleb"
+                for index, vector in enumerate([[1.0, 0.0], [0.0, 1.0]], start=1):
+                    sample = store.add_speaker_sample(
+                        speaker_id=mixed_id,
+                        observation_id=None,
+                        source_key=f"mixed-{index}",
+                        media_path=None,
+                        sample_path=None,
+                        start_seconds=0.0,
+                        end_seconds=1.0,
+                        transcript=f"mixed {index}",
+                        metadata={},
+                    )
+                    store.add_speaker_embedding(
+                        speaker_id=mixed_id,
+                        sample_id=int(sample["id"]),
+                        model=model,
+                        vector=vector,
+                        metadata={},
+                    )
+                store.update_speaker_identity_status(mixed_id, status="provisional", confidence=0.1)
+                source_sample = store.add_speaker_sample(
+                    speaker_id=source_id,
+                    observation_id=None,
+                    source_key="source",
+                    media_path=None,
+                    sample_path=None,
+                    start_seconds=0.0,
+                    end_seconds=1.0,
+                    transcript="source",
+                    metadata={},
+                )
+                store.add_speaker_embedding(
+                    speaker_id=source_id,
+                    sample_id=int(source_sample["id"]),
+                    model=model,
+                    vector=[1.0, 0.0],
+                    metadata={},
+                )
+
+                result = auto_organize_speakers(settings, store, threshold=0.68, hide_unmatched=False)
+                mixed_after = store.get_speaker(mixed_id)
+                source_after = store.get_speaker(source_id)
+                matches = store.list_speaker_match_decisions()
+            finally:
+                store.close()
+
+        self.assertEqual(result.merge_candidates, 0)
+        self.assertEqual(result.review_candidates, 0)
+        self.assertEqual(result.merged_speakers, 0)
+        self.assertIsNotNone(mixed_after)
+        self.assertIsNotNone(source_after)
+        self.assertEqual(matches, [])
 
     def test_auto_organize_uses_merge_budget_across_disjoint_pairs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1047,7 +1276,7 @@ class SpeakerProcessingTests(unittest.TestCase):
         self.assertEqual(result.merged_speakers, 2)
         self.assertEqual(sample_counts, [1, 2, 2])
 
-    def test_auto_organize_runs_cascading_merge_rounds_once(self):
+    def test_auto_organize_does_not_cascade_after_pending_review_merge(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             settings = SimpleNamespace(
@@ -1094,9 +1323,10 @@ class SpeakerProcessingTests(unittest.TestCase):
             finally:
                 store.close()
 
-        self.assertEqual(result.merge_rounds, 2)
-        self.assertEqual(result.merged_speakers, 2)
-        self.assertEqual(sample_counts, [3])
+        self.assertEqual(result.merge_rounds, 1)
+        self.assertEqual(result.merged_speakers, 1)
+        self.assertEqual(result.review_candidates, 0)
+        self.assertEqual(sample_counts, [1, 2])
 
     def test_mark_speaker_review_status_confirms_and_unhides(self):
         with tempfile.TemporaryDirectory() as tmp:

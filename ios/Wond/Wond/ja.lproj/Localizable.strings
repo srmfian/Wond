@@ -1,7 +1,6 @@
 "Capture" = "収集";
 "Today" = "今日";
 "Ask" = "質問";
-"Review" = "レビュー";
 "Settings" = "設定";
 "Controls" = "操作";
 "Stop Session" = "セッションを停止";
@@ -109,19 +108,6 @@
 "Observation %d" = "記録 %d";
 "Citation" = "引用";
 "Done" = "完了";
-"No Review Items" = "レビュー項目なし";
-"Speaker %d" = "話者 %d";
-"Name" = "名前";
-"Confirm Name" = "名前を確認";
-"No transcript" = "文字起こしなし";
-"No speakers are ready for naming." = "命名待ちの話者はありません。";
-"Review refresh failed: %@" = "レビュー更新に失敗: %@";
-"Named %@." = "%@ と命名しました。";
-"Name update failed: %@" = "名前更新に失敗: %@";
-"Sample playback failed: %@" = "サンプル再生に失敗: %@";
-"No score" = "スコアなし";
-"Audio unavailable" = "音声なし";
-"Sample" = "サンプル";
 "Segment length" = "セグメント長";
 "Audio quality" = "音声品質";
 "Stop recording during quiet hours" = "静音時間中は録音を停止";

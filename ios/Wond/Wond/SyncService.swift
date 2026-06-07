@@ -131,39 +131,6 @@ final class SyncService: NSObject, ObservableObject, URLSessionTaskDelegate, URL
         }
     }
 
-    func fetchSpeakerReviews() async throws -> [SpeakerReviewItem] {
-        guard let url = configuredEndpointURL(path: "/speaker-review") else {
-            throw SyncError.server(WondL10n.t("Remote sync URL is required"))
-        }
-        let request = try authenticatedAPIRequest(url: url, method: "GET")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        try validateHTTPResponse(response, data: data)
-        let payload = try JSONDecoder().decode(SpeakerReviewResponse.self, from: data)
-        return payload.speakers
-    }
-
-    func fetchSpeakerSample(sampleID: Int) async throws -> Data {
-        guard let url = configuredEndpointURL(path: "/speaker-review/sample/\(sampleID)") else {
-            throw SyncError.server(WondL10n.t("Remote sync URL is required"))
-        }
-        let request = try authenticatedAPIRequest(url: url, method: "GET")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        try validateHTTPResponse(response, data: data)
-        return data
-    }
-
-    func nameSpeaker(id: Int, displayName: String) async throws {
-        guard let url = configuredEndpointURL(path: "/speaker-review/name") else {
-            throw SyncError.server(WondL10n.t("Remote sync URL is required"))
-        }
-        let payload = NameSpeakerRequest(speakerID: id, displayName: displayName)
-        let body = try JSONEncoder().encode(payload)
-        var request = try authenticatedAPIRequest(url: url, method: "POST", body: body)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let (data, response) = try await URLSession.shared.data(for: request)
-        try validateHTTPResponse(response, data: data)
-    }
-
     func ask(question: String) async throws -> AskResponse {
         guard let url = configuredEndpointURL(path: "/ask") else {
             throw SyncError.server(WondL10n.t("Remote sync URL is required"))

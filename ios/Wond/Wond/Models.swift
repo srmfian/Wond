@@ -498,69 +498,6 @@ struct MobileExportLocation: Encodable {
     }
 }
 
-struct SpeakerReviewResponse: Decodable {
-    var ok: Bool
-    var speakers: [SpeakerReviewItem]
-}
-
-struct SpeakerReviewItem: Identifiable, Decodable, Equatable {
-    var id: Int
-    var displayName: String
-    var identityStatus: String
-    var confidence: Double?
-    var sampleCount: Int
-    var observationCount: Int
-    var dayCount: Int
-    var firstSeenAt: String?
-    var latestSeenAt: String?
-    var latestSampleAt: String?
-    var samples: [SpeakerReviewSample]
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case displayName = "display_name"
-        case identityStatus = "identity_status"
-        case confidence
-        case sampleCount = "sample_count"
-        case observationCount = "observation_count"
-        case dayCount = "day_count"
-        case firstSeenAt = "first_seen_at"
-        case latestSeenAt = "latest_seen_at"
-        case latestSampleAt = "latest_sample_at"
-        case samples
-    }
-}
-
-struct SpeakerReviewSample: Identifiable, Decodable, Equatable {
-    var id: Int
-    var createdAt: String?
-    var startSeconds: Double?
-    var endSeconds: Double?
-    var durationSeconds: Double?
-    var transcript: String?
-    var hasAudio: Bool
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case createdAt = "created_at"
-        case startSeconds = "start_seconds"
-        case endSeconds = "end_seconds"
-        case durationSeconds = "duration_seconds"
-        case transcript
-        case hasAudio = "has_audio"
-    }
-}
-
-struct NameSpeakerRequest: Encodable {
-    var speakerID: Int
-    var displayName: String
-
-    enum CodingKeys: String, CodingKey {
-        case speakerID = "speaker_id"
-        case displayName = "display_name"
-    }
-}
-
 struct AskRequest: Encodable {
     var question: String
 }

@@ -18,11 +18,6 @@ struct ContentView: View {
                     Label("Ask", systemImage: "magnifyingglass")
                 }
 
-            SpeakerReviewView()
-                .tabItem {
-                    Label("Review", systemImage: "person.crop.circle.badge.questionmark")
-                }
-
             SettingsView()
                 .tabItem {
                     Label("Settings", systemImage: "gearshape")

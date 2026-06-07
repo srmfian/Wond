@@ -11,7 +11,10 @@ from zoneinfo import ZoneInfo
 
 from .collectors import collect_all, is_collector_error_result
 from .compactor import (
+    daily_email_title,
+    email_report_language,
     iso_week_bounds,
+    weekly_email_title,
     write_daily_compact_summary,
     write_daily_email_digest,
     write_weekly_email_digest,
@@ -178,7 +181,7 @@ def prepare_daily_task(settings: Settings, store: Store, summary_day: date, sche
     report_path = write_daily_report(settings, store, summary_day)
     write_daily_compact_summary(settings, store, summary_day)
     body_path = write_daily_email_digest(settings, store, summary_day, source_path=report_path)
-    subject = f"[Wond] Daily Highlights - {summary_day.isoformat()}"
+    subject = f"[Wond] {daily_email_title(summary_day, email_report_language(settings))}"
     return EmailTask("daily", summary_day.isoformat(), summary_day, scheduled_for, subject, body_path)
 
 
@@ -186,7 +189,7 @@ def prepare_weekly_task(settings: Settings, store: Store, week_day: date, schedu
     _start, _end, week_key = iso_week_bounds(week_day)
     weekly_path = write_weekly_summary(settings, store, week_day)
     body_path = write_weekly_email_digest(settings, store, week_day, source_path=weekly_path)
-    subject = f"[Wond] Weekly Highlights - {week_key}"
+    subject = f"[Wond] {weekly_email_title(week_key, email_report_language(settings))}"
     return EmailTask("weekly", week_key, week_day, scheduled_for, subject, body_path)
 
 

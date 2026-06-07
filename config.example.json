@@ -1,6 +1,9 @@
 {
   "data_dir": "data",
   "timezone": "Asia/Tokyo",
+  "dashboard": {
+    "language": "en"
+  },
   "collectors": {
     "foreground_app": true,
     "calendar": true,
@@ -52,6 +55,23 @@
     "require_daily_summary_before_prune": true,
     "vacuum_after_prune": true
   },
+  "personal_memory": {
+    "enabled": true,
+    "candidate_sources": [
+      "mobile",
+      "apple_mail",
+      "messages",
+      "calendar",
+      "local_ai",
+      "openai"
+    ],
+    "max_candidates_per_day": 24,
+    "qa_include_confirmed": true,
+    "qa_include_profile": true,
+    "qa_memory_limit": 12,
+    "high_sensitivity_requires_confirmation": true,
+    "auto_link_speakers": false
+  },
   "email_reports": {
     "enabled": false,
     "from": "sender@example.com",
@@ -72,9 +92,14 @@
     "retry_after_seconds": 3600,
     "send_window_seconds": 7200,
     "ai_highlights": true,
+    "model": "",
+    "fallback_model": "",
+    "daily_model": "",
+    "weekly_model": "",
     "daily_highlight_items": 6,
     "weekly_highlight_items": 10,
-    "highlight_source_max_chars": 30000
+    "highlight_source_max_chars": 30000,
+    "ollama_timeout_seconds": 3600
   },
   "file_analysis": {
     "enabled": false,
