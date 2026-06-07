@@ -19,7 +19,7 @@ Wond defaults to local AI. Text and vision models run through Ollama, and speech
 
 ### Installer Package
 
-Download `Wond-0.3.1-macos.zip` from the GitHub release, unzip it, and double-click `install.command`.
+Download `Wond-0.4.0-macos.zip` from the GitHub release, unzip it, and double-click `install.command`.
 
 The installer prefers `/Applications/Wond`, creates a private Python virtual environment, initializes `config.json`, and can optionally load LaunchAgents for the dashboard, sync server, and background monitor. If this Mac already has an older `~/Applications/Wond` install, the installer reuses that directory and tries to create an entry point at `/Applications/Wond`. If the current user cannot write to `/Applications/Wond`, it falls back to `~/Applications/Wond`. Reinstalling preserves the existing `config.json`, `.venv/`, and `data/`.
 
@@ -39,7 +39,7 @@ If the installer reports that it used a legacy or fallback directory, these comm
 
 ### Update Package
 
-Existing Wond users do not need to run the full installer again. Download `Wond-0.3.1-macos-update.zip` from the GitHub release, unzip it, and double-click `Update Wond.command`.
+Existing Wond users do not need to run the full installer again. Download `Wond-0.4.0-macos-update.zip` from the GitHub release, unzip it, and double-click `Update Wond.command`.
 
 The update package replaces only Wond-managed application files and command entry points, while reusing the current install directory. It does not replace `config.json`, `data/`, local databases, reports, mobile sync imports, speaker samples, or model caches. The existing `.venv` is reused; if dependencies changed, the updater may refresh dependency metadata in that virtual environment.
 

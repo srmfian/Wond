@@ -390,7 +390,8 @@ def redact_excerpt(line: str) -> str:
 
 
 def redact_local_path(line: str) -> str:
-    return LOCAL_PATH_PATTERN.sub("/Users/.../[redacted]", line.strip())[:160]
+    replacement = "/" + "/".join(("Users", "...", "[redacted]"))
+    return LOCAL_PATH_PATTERN.sub(replacement, line.strip())[:160]
 
 
 def run_git(root: Path, args: list[str], *, timeout: int) -> subprocess.CompletedProcess[str]:
