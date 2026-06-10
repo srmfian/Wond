@@ -670,6 +670,25 @@ DASHBOARD_HTML = r"""<!doctype html>
     .memory-title, .meeting-title { font-weight: 800; line-height: 1.35; overflow-wrap: anywhere; word-break: break-word; }
     .memory-body, .meeting-body { color: var(--muted); line-height: 1.5; margin-top: 7px; overflow-wrap: anywhere; word-break: break-word; }
     .memory-actions, .meeting-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+    .personal-overview { display: grid; gap: 14px; margin-top: 14px; }
+    .personal-lanes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .personal-lane { border: 1px solid var(--line); border-radius: 8px; background: #fbfcfe; padding: 12px; min-width: 0; display: grid; gap: 8px; }
+    .personal-lane.warn { border-left: 4px solid var(--warn); }
+    .personal-lane.ok { border-left: 4px solid var(--accent); }
+    .personal-lane.info { border-left: 4px solid var(--accent-2); }
+    .personal-lane.private { border-left: 4px solid #64748b; }
+    .personal-lane-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; min-width: 0; }
+    .personal-lane-title { font-weight: 850; line-height: 1.25; overflow-wrap: anywhere; }
+    .personal-lane-value { font-size: 24px; font-weight: 850; line-height: 1; }
+    .personal-lane-note { color: var(--muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+    .personal-lane-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+    .personal-toolbar { display: grid; grid-template-columns: 128px minmax(180px, 1fr) 132px 132px auto; gap: 8px; align-items: center; }
+    .personal-main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px; align-items: start; margin-top: 14px; }
+    .personal-main > * { min-width: 0; }
+    .personal-heading { margin-top: 4px; }
+    .personal-side { display: grid; gap: 14px; }
+    .personal-template-row { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
+    .personal-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 10px; }
     .meeting-active { border-left-color: var(--accent); background: #fbfcfe; }
     .privacy-hero, .privacy-main { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr); gap: 14px; align-items: start; margin-bottom: 14px; }
     .privacy-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fbfcfe; }
@@ -768,6 +787,8 @@ DASHBOARD_HTML = r"""<!doctype html>
       .day-event { grid-template-columns: 1fr; }
       .today-sidebar { position: static; }
       .overview-health, .overview-actions { grid-template-columns: 1fr; }
+      .personal-main, .personal-toolbar { grid-template-columns: 1fr; }
+      .personal-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .training-hero, .training-main, .training-kpis, .training-stage-grid { grid-template-columns: 1fr; }
       .training-kpis, .training-stage-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .reports-side { position: static; }
@@ -796,6 +817,8 @@ DASHBOARD_HTML = r"""<!doctype html>
       .training-list, .training-sample-list, .training-match-list { max-height: 460px; }
       .training-kpis, .training-stage-grid { grid-template-columns: 1fr; }
       .speaker-match-list { max-height: 320px; }
+      .personal-lanes { grid-template-columns: 1fr; }
+      .personal-lane-actions .btn, .personal-empty-actions .btn { flex: 1 1 130px; }
       .timeline-breakdown { max-height: 300px; }
     }
   </style>
@@ -868,6 +891,26 @@ const translationRows = [
   ['快速写入','Quick Add','クイック追加','빠른 추가'],
   ['档案字段','Profile Fields','プロファイル項目','프로필 필드'],
   ['候选提取','Candidate Extraction','候補抽出','후보 추출'],
+  ['收件箱','Inbox','インボックス','받은함'],
+  ['档案','Profile','プロファイル','프로필'],
+  ['隐私','Privacy','プライバシー','개인정보'],
+  ['处理候选','Review candidates','候補を確認','후보 검토'],
+  ['生成候选','Generate candidates','候補を生成','후보 생성'],
+  ['查看记忆','View memories','記憶を表示','기억 보기'],
+  ['新增字段','Add field','項目を追加','필드 추가'],
+  ['新增联系人','Add person','人物を追加','연락처 추가'],
+  ['隐私/删除','Privacy/Delete','プライバシー/削除','개인정보/삭제'],
+  ['手动写入','Manual add','手動追加','수동 추가'],
+  ['默认语言','Default language','既定言語','기본 언어'],
+  ['报告偏好','Report preferences','レポート設定','보고서 선호'],
+  ['当前重点','Current focus','現在の重点','현재 중점'],
+  ['隐私边界','Privacy boundary','プライバシー境界','개인정보 경계'],
+  ['字段名，例如 默认语言','Field name, e.g. default language','項目名、例: 既定言語','필드명, 예: 기본 언어'],
+  ['全部个人记忆','All personal memories','すべての個人記憶','전체 개인 기억'],
+  ['已忽略记忆','Ignored memories','無視済み記憶','무시된 기억'],
+  ['已归档记忆','Archived memories','アーカイブ済み記憶','보관된 기억'],
+  ['保存档案字段','Save profile field','プロファイル項目を保存','프로필 필드 저장'],
+  ['创建联系人','Create person','人物を作成','연락처 생성'],
   ['隐私与删除','Privacy & Delete','プライバシーと削除','개인정보 및 삭제'],
   ['彻底删除','Delete Permanently','完全に削除','영구 삭제'],
   ['会议','Meeting','ミーティング','회의'],
@@ -2686,7 +2729,7 @@ async function projectMemoryAction(payload){
   render();
 }
 async function personalMemory(){
-  const buttons = `<button class="btn" onclick="setPersonalStatus('candidate')">记忆收件箱</button><button class="btn" onclick="setPersonalStatus('confirmed')">确认记忆</button><button class="btn" onclick="generatePersonalCandidates()">生成候选</button><button class="btn primary" onclick="personalMemory()">刷新</button>`;
+  const buttons = `<button class="btn" onclick="setPersonalStatus('candidate')">记忆收件箱</button><button class="btn" onclick="setPersonalStatus('confirmed')">确认记忆</button><button class="btn primary" onclick="personalMemory()">刷新</button>`;
   setHeader('个人档案','读取中...', buttons);
   const params = new URLSearchParams({date: state.personalDate || 'today', status: state.personalStatus || 'confirmed', type: state.personalType || 'all'});
   if(state.personalQ) params.set('q', state.personalQ);
@@ -2700,10 +2743,12 @@ async function personalMemory(){
   window.__personalPayload = j;
   $('subtitle').textContent = `${summary.profile_entries || 0} profile · ${summary.people || 0} people · ${summary.confirmed || 0} confirmed · ${summary.candidate || 0} candidate · ${summary.open_conflicts || 0} conflicts`;
   $('view').innerHTML = `
-    <div class="insight-hero">
+    <div class="personal-overview">
+      <div class="section-title personal-heading"><h3>个人档案</h3><span class="muted">${esc(shortDateTime(j.generated_at || ''))}</span></div>
+      ${personalActionBoard(summary, suggested, privacy)}
       <section class="card">
-        <div class="section-title"><h3>个人档案</h3><span class="muted">${esc(shortDateTime(j.generated_at || ''))}</span></div>
-        <div class="insight-toolbar projects">
+        <div class="section-title"><h3>筛选</h3><span class="muted">${esc(state.personalStatus || 'confirmed')}</span></div>
+        <div class="personal-toolbar">
           <input id="personalDate" value="${escAttr(state.personalDate || 'today')}" aria-label="date">
           <input id="personalQ" value="${escAttr(state.personalQ || '')}" placeholder="搜索个人事实、偏好、人物、证据" onkeydown="personalKey(event)" aria-label="search">
           <select id="personalType">${personalTypeOptions(state.personalType)}</select>
@@ -2711,32 +2756,22 @@ async function personalMemory(){
           <button class="btn primary" onclick="applyPersonalFilters()">查找</button>
         </div>
         <div class="quickbar" style="margin-top:10px">${personalStatusPills(summary)}</div>
-        <div class="insight-kpis">
-          ${insightKpi('确认记忆', summary.confirmed || 0, 'answer/report context')}
-          ${insightKpi('候选', summary.candidate || 0, 'needs review')}
-          ${insightKpi('联系人', summary.people || 0, 'people files')}
-          ${insightKpi('冲突', summary.open_conflicts || 0, 'needs decision')}
-        </div>
-      </section>
-      <section class="card">
-        <div class="section-title"><h3>快速写入</h3><span class="muted">manual</span></div>
-        ${personalQuickCreateForm()}
       </section>
     </div>
-    <div class="insight-main">
+    <div class="personal-main">
       <section class="card">
-        <div class="section-title"><h3>${state.personalStatus === 'candidate' ? '记忆收件箱' : '确认记忆'}</h3><span class="muted">${esc(memories.length)} shown</span></div>
+        <div class="section-title"><h3>${personalWorkbenchTitle()}</h3><span class="muted">${esc(memories.length)} shown</span></div>
         ${personalMemoryList(memories)}
       </section>
-      <aside class="insight-side">
+      <aside class="personal-side">
+        <section class="card">
+          <div class="section-title"><h3>快速写入</h3><span class="muted">manual</span></div>
+          ${personalQuickCreateForm()}
+        </section>
         <section class="card">
           <div class="section-title"><h3>档案字段</h3><span class="muted">${esc(summary.profile_entries || 0)} entries</span></div>
           ${profileEditor()}
           ${profileSectionList((j.profile || {}).sections || [])}
-        </section>
-        <section class="card">
-          <div class="section-title"><h3>候选提取</h3><span class="muted">${esc((summary.suggested || 0))} new</span></div>
-          ${suggestedPersonalList(suggested)}
         </section>
         <section class="card">
           <div class="section-title"><h3>联系人档案</h3><span class="muted">${esc(people.length)} people</span></div>
@@ -2747,12 +2782,45 @@ async function personalMemory(){
           <div class="section-title"><h3>冲突队列</h3><span class="muted">${esc(conflicts.length)} open</span></div>
           ${conflictList(conflicts)}
         </section>
-        <section class="card">
+        <section class="card" id="personalPrivacyCard" tabindex="-1">
           <div class="section-title"><h3>隐私与删除</h3><span class="muted">local only</span></div>
           ${personalPrivacyPanel(privacy)}
         </section>
       </aside>
     </div>`;
+}
+function personalActionBoard(summary, suggested, privacy){
+  const high = ((privacy || {}).by_sensitivity || {}).high || 0;
+  const suggestedCount = summary.suggested || (suggested || []).length || 0;
+  return `<div class="personal-lanes">
+    <div class="personal-lane warn">
+      <div class="personal-lane-head"><div class="personal-lane-title">收件箱</div><div class="personal-lane-value">${esc(summary.candidate || 0)}</div></div>
+      <div class="personal-lane-note">${esc(suggestedCount)} 条新候选</div>
+      <div class="personal-lane-actions"><button class="btn primary" onclick="setPersonalStatus('candidate')">处理候选</button><button class="btn" onclick="generatePersonalCandidates()">生成候选</button></div>
+    </div>
+    <div class="personal-lane ok">
+      <div class="personal-lane-head"><div class="personal-lane-title">已确认</div><div class="personal-lane-value">${esc(summary.confirmed || 0)}</div></div>
+      <div class="personal-lane-note">问答和报告会使用</div>
+      <div class="personal-lane-actions"><button class="btn primary" onclick="setPersonalStatus('confirmed')">查看记忆</button></div>
+    </div>
+    <div class="personal-lane info">
+      <div class="personal-lane-head"><div class="personal-lane-title">档案</div><div class="personal-lane-value">${esc(summary.profile_entries || 0)}</div></div>
+      <div class="personal-lane-note">${esc(summary.people || 0)} 个联系人</div>
+      <div class="personal-lane-actions"><button class="btn" onclick="focusProfileEditor()">新增字段</button><button class="btn" onclick="focusPersonEditor()">新增联系人</button></div>
+    </div>
+    <div class="personal-lane private">
+      <div class="personal-lane-head"><div class="personal-lane-title">隐私</div><div class="personal-lane-value">${esc(high)}</div></div>
+      <div class="personal-lane-note">${esc(summary.open_conflicts || 0)} 个未处理冲突</div>
+      <div class="personal-lane-actions"><button class="btn" onclick="focusPersonalElement('personalPrivacyCard')">隐私/删除</button></div>
+    </div>
+  </div>`;
+}
+function personalWorkbenchTitle(){
+  if(state.personalStatus === 'candidate') return '记忆收件箱';
+  if(state.personalStatus === 'ignored') return '已忽略记忆';
+  if(state.personalStatus === 'archived') return '已归档记忆';
+  if(state.personalStatus === 'all') return '全部个人记忆';
+  return '确认记忆';
 }
 function personalQuickCreateForm(){
   return `<div class="settings-edit-list">
@@ -2765,6 +2833,12 @@ function personalQuickCreateForm(){
 }
 function profileEditor(){
   return `<details class="compact-details" open><summary>编辑档案字段</summary><div class="compact-details-body">
+    <div class="personal-template-row">
+      <button class="btn" onclick="fillProfileTemplate('preferences','默认语言','默认用中文回答和写报告。')">默认语言</button>
+      <button class="btn" onclick="fillProfileTemplate('preferences','报告偏好','报告要保留结论、证据和下一步。')">报告偏好</button>
+      <button class="btn" onclick="fillProfileTemplate('focus','当前重点','')">当前重点</button>
+      <button class="btn" onclick="fillProfileTemplate('boundaries','隐私边界','')">隐私边界</button>
+    </div>
     <select id="profileSection">${profileSectionOptions()}</select>
     <input id="profileLabel" placeholder="字段名，例如 默认语言" style="margin-top:8px">
     <textarea id="profileValue" placeholder="字段值" style="margin-top:8px"></textarea>
@@ -2790,7 +2864,7 @@ function personEditor(){
   </div></details>`;
 }
 function personalMemoryList(rows){
-  if(!(rows || []).length) return '<div class="empty-state">当前筛选没有个人记忆。</div>';
+  if(!(rows || []).length) return `<div class="empty-state">当前筛选没有个人记忆。<div class="personal-empty-actions"><button class="btn primary" onclick="generatePersonalCandidates()">生成候选</button><button class="btn" onclick="focusQuickMemory()">手动写入</button></div></div>`;
   return `<div class="memory-list">${rows.map(personalMemoryCard).join('')}</div>`;
 }
 function personalMemoryCard(item){
@@ -2891,6 +2965,26 @@ function personalKey(event){
     applyPersonalFilters();
   }
 }
+function focusPersonalElement(id){
+  const el = $(id);
+  if(!el) return;
+  const details = el.closest ? el.closest('details') : null;
+  if(details) details.open = true;
+  el.scrollIntoView({block:'center', behavior:'smooth'});
+  setTimeout(() => el.focus(), 120);
+}
+function fillProfileTemplate(section, label, value){
+  const sectionEl = $('profileSection');
+  const labelEl = $('profileLabel');
+  const valueEl = $('profileValue');
+  if(sectionEl) sectionEl.value = section || 'preferences';
+  if(labelEl) labelEl.value = label || '';
+  if(valueEl) valueEl.value = value || '';
+  focusPersonalElement('profileValue');
+}
+function focusProfileEditor(){ focusPersonalElement('profileLabel'); }
+function focusPersonEditor(){ focusPersonalElement('personName'); }
+function focusQuickMemory(){ focusPersonalElement('personalNewTitle'); }
 function setPersonalStatus(value){ state.personalStatus = value || 'confirmed'; personalMemory(); }
 async function personalMemoryPost(payload, message){
   const j = await api('/api/personal-memory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});

@@ -1961,9 +1961,20 @@ def editable_settings_schema() -> list[dict[str, Any]]:
         editable_field("speaker_recognition.sample_require_diarization_segments", "bool", "只使用分离模型边界"),
         editable_field("speaker_recognition.sample_long_segment_anchor", "choice", "长段取样位置", options=["start", "center", "end"]),
         editable_field("speaker_recognition.sample_dir", "string", "样本目录"),
+        editable_field("speaker_recognition.sample_audio_cleanup_enabled", "bool", "自动清理旧样本音频"),
+        editable_field("speaker_recognition.sample_audio_retention_days", "int", "样本音频保留天数", min=1, max=3650, unit="d"),
+        editable_field("speaker_recognition.sample_audio_cleanup_require_embedding", "bool", "清理前要求声纹存在"),
+        editable_field("speaker_recognition.speaker_profile_max_prototypes", "int", "声纹 profile 原型上限", min=1, max=24),
+        editable_field("speaker_recognition.speaker_profile_outlier_min_similarity", "float", "声纹离群过滤阈值", min=0, max=1),
         editable_field("speaker_recognition.confirmed_profile_matching_enabled", "bool", "已确认 profile 匹配"),
         editable_field("speaker_recognition.confirmed_profile_max_prototypes", "int", "profile 原型上限", min=1, max=24),
         editable_field("speaker_recognition.confirmed_profile_min_samples", "int", "profile 最少样本", min=1, max=24),
+        editable_field("speaker_recognition.confirmed_profile_min_sample_confidence", "float", "profile 样本最低一致性", min=0, max=1),
+        editable_field("speaker_recognition.confirmed_profile_auto_merge_enabled", "bool", "确认 profile 自动学习"),
+        editable_field("speaker_recognition.confirmed_profile_auto_merge_threshold", "float", "确认 profile 自动学习阈值", min=0, max=1),
+        editable_field("speaker_recognition.confirmed_profile_source_min_confidence", "float", "确认 profile 源簇最低一致性", min=0, max=1),
+        editable_field("speaker_recognition.auto_merge_min_sample_confidence", "float", "自动合并样本最低一致性", min=0, max=1),
+        editable_field("speaker_recognition.representative_min_sample_confidence", "float", "代表样本最低一致性", min=0, max=1),
         editable_field("speaker_recognition.auto_merge_threshold", "float", "自动合并阈值", min=0, max=1),
         editable_field("speaker_recognition.auto_merge_max_merges", "int", "单次自动合并上限", min=1, max=5000),
         editable_field("speaker_recognition.candidate_threshold", "float", "候选阈值", min=0, max=1),
@@ -2510,6 +2521,32 @@ def action_speaker_detach_sample(settings: Settings, args: dict[str, Any]) -> li
     return command
 
 
+def action_speaker_protect_sample(settings: Settings, args: dict[str, Any]) -> list[str]:
+    sample_ids = speaker_id_list(args.get("sample_ids") or args.get("sample_id") or args.get("ids"))
+    if not sample_ids:
+        raise ValueError("missing_sample_ids")
+    command = [sys_executable(), "-m", "wond", "speakers", "protect-sample", *[str(sample_id) for sample_id in sample_ids]]
+    if bool(args.get("unprotect")):
+        command.append("--unprotect")
+    return command
+
+
+def action_speaker_prune_sample_audio(settings: Settings, args: dict[str, Any]) -> list[str]:
+    command = [sys_executable(), "-m", "wond", "speakers", "prune-sample-audio"]
+    date_value = str(args.get("date") or "").strip()
+    if date_value:
+        command.extend(["--date", date_value])
+    older_than_days = parse_int(args.get("older_than_days"))
+    if older_than_days is not None and older_than_days > 0:
+        command.extend(["--older-than-days", str(older_than_days)])
+    limit = parse_int(args.get("limit"))
+    if limit is not None and limit > 0:
+        command.extend(["--limit", str(limit)])
+    if bool(args.get("apply")):
+        command.append("--apply")
+    return command
+
+
 def action_speaker_split_sample(settings: Settings, args: dict[str, Any]) -> list[str]:
     sample_id = parse_int(args.get("sample_id"))
     if sample_id is None or sample_id <= 0:
@@ -2643,6 +2680,8 @@ ACTIONS = {
     "speaker_delete": action_speaker_delete,
     "speaker_delete_many": action_speaker_delete_many,
     "speaker_detach_sample": action_speaker_detach_sample,
+    "speaker_protect_sample": action_speaker_protect_sample,
+    "speaker_prune_sample_audio": action_speaker_prune_sample_audio,
     "speaker_split_sample": action_speaker_split_sample,
     "speaker_refresh_sample_confidence": action_speaker_refresh_sample_confidence,
     "speaker_repair_embeddings": action_speaker_repair_embeddings,
@@ -2676,6 +2715,8 @@ ACTION_TIMEOUTS = {
     "speaker_delete": 60,
     "speaker_delete_many": 120,
     "speaker_detach_sample": 120,
+    "speaker_protect_sample": 60,
+    "speaker_prune_sample_audio": 180,
     "speaker_split_sample": 180,
     "speaker_refresh_sample_confidence": 300,
     "speaker_repair_embeddings": 1800,

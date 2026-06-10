@@ -75,7 +75,6 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
                 self?.markUploadAccepted(snapshot)
             }
         }
-        configureLocationTracking()
         if let openSession = sessions.last(where: { $0.endedAt == nil }) {
             currentSession = openSession
             state = openSession.state == .recording ? .paused : openSession.state
@@ -84,6 +83,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
                 scheduleInterruptionRecovery(reason: WondL10n.t("Recovered an interrupted session after app launch"), delay: 1.0)
             }
         }
+        configureLocationTracking()
         if settings.autoSyncEnabled {
             syncService.start()
         }
@@ -137,7 +137,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
     }
 
     var canOpenLocationSettings: Bool {
-        guard settings.locationMode != .off else { return false }
+        guard settings.captureMode.recordsLocation, settings.locationMode != .off else { return false }
         if !CLLocationManager.locationServicesEnabled() { return true }
         switch locationManager.authorizationStatus {
         case .restricted, .denied:
@@ -147,7 +147,27 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
         }
     }
 
+    var isAudioCaptureEnabled: Bool {
+        settings.captureMode.recordsAudio
+    }
+
+    var isLocationCaptureEnabled: Bool {
+        settings.captureMode.recordsLocation && settings.locationMode != .off
+    }
+
+    var isActiveCaptureSession: Bool {
+        currentSession != nil && (state == .recording || state == .paused || state == .interrupted)
+    }
+
     func startRecording() async {
+        if settings.captureMode.recordsAudio {
+            await startAudioCapture()
+        } else {
+            startLocationOnlyCapture()
+        }
+    }
+
+    private func startAudioCapture() async {
         lastError = nil
         guard !isInSleepQuietHours() else {
             stopRecordingForSleepQuietHours()
@@ -155,6 +175,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
             return
         }
         do {
+            ensureLocationModeIfNeeded()
             guard await requestMicrophonePermission() else {
                 state = .permissionNeeded
                 lastError = WondL10n.t("Microphone permission is required.")
@@ -167,6 +188,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
             try configureAudioSession()
             state = .recording
             updateCurrentSessionState(.recording)
+            configureLocationTracking()
             try startNewSegment()
             startUITimer()
             shouldResumeAfterInterruption = false
@@ -179,7 +201,25 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
         }
     }
 
+    private func startLocationOnlyCapture() {
+        lastError = nil
+        ensureLocationModeIfNeeded()
+        if currentSession == nil || currentSession?.endedAt != nil {
+            createSession()
+        }
+        state = .recording
+        updateCurrentSessionState(.recording)
+        configureLocationTracking()
+        requestLocationSampleIfNeeded()
+        startUITimer()
+        save()
+    }
+
     func pauseRecording() {
+        guard settings.captureMode.recordsAudio else {
+            stopRecording()
+            return
+        }
         guard state == .recording else { return }
         state = .paused
         updateCurrentSessionState(.paused)
@@ -207,6 +247,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
         recorder = nil
         stopUITimer()
         finalizeCurrentSession()
+        configureLocationTracking()
         do {
             try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         } catch {
@@ -253,6 +294,16 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
 
     func setAudioQuality(_ value: AudioQuality) {
         settings.audioQuality = value
+        save()
+    }
+
+    func setCaptureMode(_ value: CaptureMode) {
+        if currentSession != nil {
+            stopRecording()
+        }
+        settings.captureMode = value
+        ensureLocationModeIfNeeded()
+        configureLocationTracking()
         save()
     }
 
@@ -557,6 +608,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
 
     private func createSession() {
         let now = Date()
+        ensureLocationModeIfNeeded()
         let session = CaptureSessionRecord(
             id: "session-\(filenameTimestamp(now))",
             startedAt: now,
@@ -896,7 +948,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
         locationManager.stopMonitoringSignificantLocationChanges()
         isRequestingOneShotLocation = false
 
-        guard settings.locationMode != .off else {
+        guard shouldCaptureLocationNow else {
             locationStatusMessage = nil
             return
         }
@@ -926,9 +978,9 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
     private func startConfiguredLocationMode() {
         locationManager.pausesLocationUpdatesAutomatically = true
         locationManager.allowsBackgroundLocationUpdates =
-            settings.locationMode == .continuous && locationManager.authorizationStatus == .authorizedAlways
+            shouldCaptureLocationNow && settings.locationMode == .continuous && locationManager.authorizationStatus == .authorizedAlways
         locationManager.showsBackgroundLocationIndicator =
-            settings.locationMode == .continuous && locationManager.authorizationStatus == .authorizedAlways
+            shouldCaptureLocationNow && settings.locationMode == .continuous && locationManager.authorizationStatus == .authorizedAlways
 
         switch settings.locationMode {
         case .off:
@@ -958,7 +1010,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
     }
 
     private func requestLocationSampleIfNeeded() {
-        guard settings.locationMode != .off, !isRequestingOneShotLocation else { return }
+        guard shouldCaptureLocationNow, !isRequestingOneShotLocation else { return }
         let status = locationManager.authorizationStatus
         guard status == .authorizedAlways || status == .authorizedWhenInUse else { return }
         isRequestingOneShotLocation = true
@@ -1005,7 +1057,7 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
     }
 
     private func recordLocationUpdate(_ location: CLLocation) {
-        guard settings.locationMode != .off,
+        guard shouldCaptureLocationNow,
               location.horizontalAccuracy >= 0,
               Date().timeIntervalSince(location.timestamp) < 60 * 60,
               shouldStoreLocation(location)
@@ -1279,11 +1331,12 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
     }
 
     private func enforceSleepQuietRecordingPolicy() {
-        guard isInSleepQuietHours() else { return }
+        guard settings.captureMode.recordsAudio, isInSleepQuietHours() else { return }
         stopRecordingForSleepQuietHours()
     }
 
     private func stopRecordingForSleepQuietHours() {
+        guard settings.captureMode.recordsAudio else { return }
         guard currentSession != nil else {
             recorder?.stop()
             recorder = nil
@@ -1355,6 +1408,18 @@ final class CaptureStore: NSObject, ObservableObject, AVAudioRecorderDelegate, C
     }
 
     private static let sleepDayRolloverMinute = 12 * 60
+
+    private var shouldCaptureLocationNow: Bool {
+        settings.captureMode.recordsLocation
+            && settings.locationMode != .off
+            && isActiveCaptureSession
+    }
+
+    private func ensureLocationModeIfNeeded() {
+        if settings.captureMode.recordsLocation && settings.locationMode == .off {
+            settings.locationMode = .periodic
+        }
+    }
 
     private func makeMobileExport(onlyToday: Bool = false) -> MobileExport {
         var events: [MobileExportEvent] = []

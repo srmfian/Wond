@@ -18,11 +18,11 @@ struct CaptureView: View {
                     primaryRecordingButton
                         .buttonStyle(.borderedProminent)
                         .controlSize(.large)
-                    if store.state == .recording || store.state == .paused {
+                    if store.isAudioCaptureEnabled && (store.state == .recording || store.state == .paused) {
                         Button(role: .destructive) {
                             store.stopRecording()
                         } label: {
-                            Label("Stop Session", systemImage: "stop.fill")
+                            Label("Stop Capture", systemImage: "stop.fill")
                         }
                     }
                     Button {
@@ -147,11 +147,17 @@ struct CaptureView: View {
 
     private var primaryRecordingButton: some View {
         Group {
-            if store.state == .recording {
+            if store.state == .recording && store.isAudioCaptureEnabled {
                 Button {
                     store.pauseRecording()
                 } label: {
                     Label("Pause Recording", systemImage: "pause.fill")
+                }
+            } else if store.state == .recording {
+                Button {
+                    store.stopRecording()
+                } label: {
+                    Label("Stop Location", systemImage: "stop.fill")
                 }
             } else if store.state == .paused || store.state == .interrupted {
                 Button {
@@ -163,7 +169,7 @@ struct CaptureView: View {
                 Button {
                     Task { await store.startRecording() }
                 } label: {
-                    Label("Start Recording", systemImage: "record.circle")
+                    Label(startButtonTitle, systemImage: startButtonIcon)
                 }
             }
         }
@@ -172,7 +178,7 @@ struct CaptureView: View {
     private var captureStatusPanel: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .center) {
-                Label(store.state.title, systemImage: statusIcon)
+                Label(captureStateTitle, systemImage: statusIcon)
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(statusColor)
                 Spacer()
@@ -194,24 +200,26 @@ struct CaptureView: View {
                     .foregroundStyle(.secondary)
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Current segment")
-                        .font(.subheadline.weight(.medium))
-                    Spacer()
-                    Text("\(CaptureFormatters.duration(store.currentSegmentSeconds)) / \(CaptureFormatters.duration(TimeInterval(store.settings.segmentSeconds)))")
-                        .font(.footnote.monospacedDigit())
-                        .foregroundStyle(.secondary)
+            if store.isAudioCaptureEnabled {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Current segment")
+                            .font(.subheadline.weight(.medium))
+                        Spacer()
+                        Text("\(CaptureFormatters.duration(store.currentSegmentSeconds)) / \(CaptureFormatters.duration(TimeInterval(store.settings.segmentSeconds)))")
+                            .font(.footnote.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    ProgressView(value: segmentProgress)
+                        .tint(statusColor)
                 }
-                ProgressView(value: segmentProgress)
-                    .tint(statusColor)
             }
 
             StatusSummaryRow(
                 icon: "location",
                 title: locationTitle,
                 subtitle: locationSubtitle,
-                tint: store.settings.locationMode == .off ? .secondary : .blue
+                tint: store.isLocationCaptureEnabled ? .blue : .secondary
             )
 
         }
@@ -221,7 +229,7 @@ struct CaptureView: View {
     private var statusColor: Color {
         switch store.state {
         case .recording:
-            return .red
+            return store.isAudioCaptureEnabled ? .red : .blue
         case .paused:
             return .orange
         case .idle:
@@ -232,6 +240,9 @@ struct CaptureView: View {
     }
 
     private var statusIcon: String {
+        if store.state == .recording && !store.isAudioCaptureEnabled {
+            return "location.fill"
+        }
         switch store.state {
         case .recording:
             return "record.circle.fill"
@@ -248,10 +259,17 @@ struct CaptureView: View {
         }
     }
 
+    private var captureStateTitle: String {
+        if store.state == .recording && !store.isAudioCaptureEnabled {
+            return WondL10n.t("Location Active")
+        }
+        return store.state.title
+    }
+
     private var statusPillTitle: String {
         switch store.state {
         case .recording:
-            return WondL10n.t("Live")
+            return store.isAudioCaptureEnabled ? WondL10n.t("Live") : WondL10n.t("Location")
         case .paused:
             return WondL10n.t("Paused")
         case .idle:
@@ -281,8 +299,22 @@ struct CaptureView: View {
         store.syncService.isUploading ? WondL10n.t("Syncing to Mac") : WondL10n.t("Sync to Mac Now")
     }
 
+    private var startButtonTitle: String {
+        if store.settings.captureMode == .locationOnly {
+            return WondL10n.t("Start Location")
+        }
+        if store.settings.captureMode == .audioAndLocation {
+            return WondL10n.t("Start Audio + Location")
+        }
+        return WondL10n.t("Start Recording")
+    }
+
+    private var startButtonIcon: String {
+        store.settings.captureMode == .locationOnly ? "location.fill" : "record.circle"
+    }
+
     private var locationTitle: String {
-        guard store.settings.locationMode != .off else {
+        guard store.isLocationCaptureEnabled else {
             return WondL10n.t("Location off")
         }
         if let location = store.latestLocation {
@@ -292,7 +324,7 @@ struct CaptureView: View {
     }
 
     private var locationSubtitle: String {
-        guard store.settings.locationMode != .off else {
+        guard store.isLocationCaptureEnabled else {
             return WondL10n.t("No place attached")
         }
         if let location = store.latestLocation {

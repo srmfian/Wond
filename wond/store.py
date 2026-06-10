@@ -983,7 +983,8 @@ class Store:
                 speaker_embeddings.*,
                 speakers.display_name AS speaker_name,
                 speakers.identity_status AS identity_status,
-                speaker_samples.sample_path AS sample_path
+                speaker_samples.sample_path AS sample_path,
+                speaker_samples.metadata AS sample_metadata
             FROM speaker_embeddings
             JOIN speakers ON speakers.id = speaker_embeddings.speaker_id
             LEFT JOIN speaker_samples ON speaker_samples.id = speaker_embeddings.sample_id

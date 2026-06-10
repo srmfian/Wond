@@ -10,53 +10,84 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Recording") {
-                    Picker("Segment length", selection: segmentBinding) {
-                        ForEach(segmentOptions, id: \.self) { value in
-                            Text(CaptureFormatters.duration(TimeInterval(value))).tag(value)
+                Section("Capture") {
+                    Picker("Capture mode", selection: captureModeBinding) {
+                        ForEach(CaptureMode.allCases) { mode in
+                            Text(mode.title).tag(mode)
                         }
                     }
 
-                    Picker("Audio quality", selection: qualityBinding) {
-                        ForEach(AudioQuality.allCases) { quality in
-                            Text(quality.title).tag(quality)
+                    if store.settings.captureMode.recordsAudio {
+                        Picker("Segment length", selection: segmentBinding) {
+                            ForEach(segmentOptions, id: \.self) { value in
+                                Text(CaptureFormatters.duration(TimeInterval(value))).tag(value)
+                            }
                         }
-                    }
 
-                    Toggle("Stop recording during quiet hours", isOn: sleepQuietHoursBinding)
+                        Picker("Audio quality", selection: qualityBinding) {
+                            ForEach(AudioQuality.allCases) { quality in
+                                Text(quality.title).tag(quality)
+                            }
+                        }
 
-                    NavigationLink {
-                        QuietScheduleView()
-                    } label: {
+                        Toggle("Stop recording during quiet hours", isOn: sleepQuietHoursBinding)
+
+                        NavigationLink {
+                            QuietScheduleView()
+                        } label: {
+                            SettingsSummaryRow(
+                                icon: "moon.zzz",
+                                title: "Quiet Schedule",
+                                subtitle: quietScheduleOverview
+                            )
+                        }
+                    } else {
                         SettingsSummaryRow(
-                            icon: "moon.zzz",
-                            title: "Quiet Schedule",
-                            subtitle: quietScheduleOverview
+                            icon: "mic.slash",
+                            title: "Audio recording disabled",
+                            subtitle: "Location-only mode will not request microphone permission."
                         )
                     }
                 }
 
-                Section("Location") {
-                    Picker("Location mode", selection: locationModeBinding) {
-                        ForEach(LocationMode.allCases) { mode in
-                            Text(mode.title).tag(mode)
+                Section {
+                    if store.settings.captureMode.recordsLocation {
+                        Picker("Location mode", selection: locationModeBinding) {
+                            ForEach(locationModeOptions) { mode in
+                                Text(mode.title).tag(mode)
+                            }
                         }
-                    }
-                    if let location = store.latestLocation {
-                        LabeledContent("Last place", value: location.label)
-                        LabeledContent("Updated", value: "\(CaptureFormatters.day(location.observedAt)) \(CaptureFormatters.clock(location.observedAt))")
-                    }
-                    if let status = store.locationStatusMessage {
-                        Text(WondL10n.t(status))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                    if store.canOpenLocationSettings {
-                        Button {
-                            store.openAppSettings()
-                        } label: {
-                            Label("Open Settings", systemImage: "gear")
+
+                        if let location = store.latestLocation {
+                            LabeledContent("Last place", value: location.label)
+                            LabeledContent("Updated", value: "\(CaptureFormatters.day(location.observedAt)) \(CaptureFormatters.clock(location.observedAt))")
                         }
+                        if let status = store.locationStatusMessage {
+                            Text(WondL10n.t(status))
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        if store.canOpenLocationSettings {
+                            Button {
+                                store.openAppSettings()
+                            } label: {
+                                Label("Open Settings", systemImage: "gear")
+                            }
+                        }
+                    } else {
+                        SettingsSummaryRow(
+                            icon: "location.slash",
+                            title: "Location recording disabled",
+                            subtitle: "Audio-only mode will not write location samples."
+                        )
+                    }
+                } header: {
+                    Text("Location")
+                } footer: {
+                    if store.settings.captureMode.recordsLocation {
+                        Text("Location samples are recorded only while a capture session is active.")
+                    } else {
+                        Text("Switch Capture mode to Location Only or Audio + Location to record places.")
                     }
                 }
 
@@ -139,11 +170,22 @@ struct SettingsView: View {
         )
     }
 
+    private var captureModeBinding: Binding<CaptureMode> {
+        Binding(
+            get: { store.settings.captureMode },
+            set: { store.setCaptureMode($0) }
+        )
+    }
+
     private var locationModeBinding: Binding<LocationMode> {
         Binding(
             get: { store.settings.locationMode },
             set: { store.setLocationMode($0) }
         )
+    }
+
+    private var locationModeOptions: [LocationMode] {
+        store.settings.captureMode.recordsLocation ? LocationMode.allCases.filter { $0 != .off } : [.off]
     }
 
     private var retentionBinding: Binding<Int> {

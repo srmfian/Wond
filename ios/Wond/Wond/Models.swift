@@ -67,6 +67,43 @@ enum AudioQuality: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum CaptureMode: String, Codable, CaseIterable, Identifiable {
+    case audioAndLocation
+    case audioOnly
+    case locationOnly
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .audioAndLocation:
+            return WondL10n.t("Audio + Location")
+        case .audioOnly:
+            return WondL10n.t("Audio Only")
+        case .locationOnly:
+            return WondL10n.t("Location Only")
+        }
+    }
+
+    var recordsAudio: Bool {
+        switch self {
+        case .audioAndLocation, .audioOnly:
+            return true
+        case .locationOnly:
+            return false
+        }
+    }
+
+    var recordsLocation: Bool {
+        switch self {
+        case .audioAndLocation, .locationOnly:
+            return true
+        case .audioOnly:
+            return false
+        }
+    }
+}
+
 enum LocationMode: String, Codable, CaseIterable, Identifiable {
     case off
     case significantChange
@@ -248,6 +285,7 @@ struct SleepQuietInterval: Codable, Equatable, Identifiable {
 }
 
 struct CaptureSettings: Codable, Equatable {
+    var captureMode: CaptureMode = .audioOnly
     var segmentSeconds: Int = 300
     var audioQuality: AudioQuality = .balanced
     var locationMode: LocationMode = .off
@@ -266,6 +304,7 @@ struct CaptureSettings: Codable, Equatable {
     var sleepQuietSchedule: [SleepQuietInterval] = SleepQuietInterval.defaultWeek()
 
     enum CodingKeys: String, CodingKey {
+        case captureMode
         case segmentSeconds
         case audioQuality
         case locationMode
@@ -291,6 +330,11 @@ struct CaptureSettings: Codable, Equatable {
         segmentSeconds = try container.decodeIfPresent(Int.self, forKey: .segmentSeconds) ?? 300
         audioQuality = try container.decodeIfPresent(AudioQuality.self, forKey: .audioQuality) ?? .balanced
         locationMode = try container.decodeIfPresent(LocationMode.self, forKey: .locationMode) ?? .off
+        captureMode = try container.decodeIfPresent(CaptureMode.self, forKey: .captureMode)
+            ?? (locationMode == .off ? .audioOnly : .audioAndLocation)
+        if captureMode.recordsLocation && locationMode == .off {
+            locationMode = .periodic
+        }
         retentionDays = try container.decodeIfPresent(Int.self, forKey: .retentionDays) ?? 30
         autoSyncEnabled = try container.decodeIfPresent(Bool.self, forKey: .autoSyncEnabled) ?? false
         syncToken = try container.decodeIfPresent(String.self, forKey: .syncToken) ?? ""

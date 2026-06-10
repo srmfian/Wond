@@ -13,11 +13,13 @@ from types import SimpleNamespace
 from wond.sync_server import (
     cleanup_upload_artifacts,
     extract_zip_safely,
+    mobile_speakers_payload,
     save_upload_stream,
     upload_auth_preflight,
     verify_api_auth,
     verify_upload_auth,
 )
+from wond.store import Store
 
 
 def sync_settings(root: Path, token: str = "sync-secret", **mobile_sync):
@@ -145,6 +147,100 @@ class SyncServerSecurityTests(unittest.TestCase):
 
             self.assertFalse((destination / "safe-first.txt").exists())
             self.assertFalse((root / "safe-evil" / "pwned.txt").exists())
+
+    def test_mobile_speakers_payload_matches_dashboard_sample_contract(self):
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            root = Path(raw_tmp)
+            db_path = root / "wond.sqlite3"
+            store = Store(db_path)
+            try:
+                speaker = store.ensure_speaker_for_alias("obs:1:s1", default_name="Speaker 1", label="Speaker 1")
+                speaker_id = int(speaker["id"])
+                store.conn.execute(
+                    "UPDATE speakers SET metadata = ? WHERE id = ?",
+                    (
+                        '{"speaker_review_status":"needs_review","speaker_hidden":false,'
+                        '"auto_merge_sources":[{"source_speaker_id":1},{"source_speaker_id":2},'
+                        '{"source_speaker_id":3},{"source_speaker_id":4},{"source_speaker_id":5},'
+                        '{"source_speaker_id":6}],"private_note":"do-not-send"}',
+                        speaker_id,
+                    ),
+                )
+                store.conn.commit()
+                sample = store.add_speaker_sample(
+                    speaker_id=speaker_id,
+                    observation_id=None,
+                    source_key="sample-visible",
+                    media_path=None,
+                    sample_path=str(root / "speaker_samples" / "sample.m4a"),
+                    start_seconds=1.0,
+                    end_seconds=3.0,
+                    transcript="visible sample",
+                    metadata={
+                        "sample_confidence": 0.42,
+                        "sample_confidence_model": "test-model",
+                        "representative_sample": True,
+                    },
+                )
+                second_sample = store.add_speaker_sample(
+                    speaker_id=speaker_id,
+                    observation_id=None,
+                    source_key="sample-visible-2",
+                    media_path=None,
+                    sample_path=str(root / "speaker_samples" / "sample-2.m4a"),
+                    start_seconds=6.0,
+                    end_seconds=8.0,
+                    transcript="second visible sample",
+                    metadata={},
+                )
+                store.add_speaker_sample(
+                    speaker_id=speaker_id,
+                    observation_id=None,
+                    source_key="sample-archived",
+                    media_path=None,
+                    sample_path=None,
+                    start_seconds=4.0,
+                    end_seconds=5.0,
+                    transcript="archived parent",
+                    metadata={"sample_role": "mixed_parent_archived"},
+                )
+                store.add_speaker_embedding(
+                    speaker_id=speaker_id,
+                    sample_id=int(sample["id"]),
+                    model="test-model",
+                    vector=[1.0, 0.0],
+                    metadata={},
+                )
+            finally:
+                store.close()
+
+            settings = SimpleNamespace(
+                db_path=db_path,
+                speaker_recognition={
+                    "candidate_threshold": 0.68,
+                    "auto_merge_threshold": 0.68,
+                },
+            )
+
+            payload = mobile_speakers_payload(settings, {"sample_limit": ["1"]})
+
+            self.assertTrue(payload["ok"])
+            self.assertEqual(len(payload["speakers"]), 1)
+            self.assertEqual(payload["speakers"][0]["sample_count"], 3)
+            self.assertEqual(payload["speakers"][0]["embedding_count"], 1)
+            self.assertIn("confidence_summary", payload["speakers"][0])
+            self.assertEqual(payload["speakers"][0]["metadata"]["speaker_review_status"], "needs_review")
+            self.assertNotIn("private_note", payload["speakers"][0]["metadata"])
+            self.assertEqual(payload["speakers"][0]["metadata"]["auto_merge_source_count"], 6)
+            self.assertEqual(len(payload["speakers"][0]["metadata"]["auto_merge_sources"]), 5)
+            self.assertEqual(len(payload["samples"]), 1)
+            self.assertEqual(payload["sample_total"], 2)
+            self.assertTrue(payload["samples_truncated"])
+            self.assertIn(payload["samples"][0]["id"], {int(sample["id"]), int(second_sample["id"])})
+            if payload["samples"][0]["id"] == int(sample["id"]):
+                self.assertEqual(payload["samples"][0]["metadata"]["sample_confidence"], 0.42)
+                self.assertTrue(payload["samples"][0]["metadata"]["representative_sample"])
+            self.assertIn("speaker_recognition", payload["config"])
 
 
 if __name__ == "__main__":

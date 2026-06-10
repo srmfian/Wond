@@ -181,6 +181,8 @@ def retention_result_payload(result: Any) -> dict[str, Any]:
         "deleted_activity_samples": result.deleted_activity_samples,
         "deleted_collector_runs": result.deleted_collector_runs,
         "deleted_reports": result.deleted_reports,
+        "pruned_speaker_sample_audio": getattr(result, "pruned_speaker_sample_audio", 0),
+        "speaker_sample_audio_candidate_bytes": getattr(result, "speaker_sample_audio_candidate_bytes", 0),
         "trimmed_logs": result.trimmed_logs,
         "skipped_days": result.skipped_days,
         "vacuumed": result.vacuumed,

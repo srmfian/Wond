@@ -148,6 +148,39 @@ final class SyncService: NSObject, ObservableObject, URLSessionTaskDelegate, URL
         return askResponse
     }
 
+    func fetchSpeakers(parameters: [String: String] = [:]) async throws -> MobileSpeakersResponse {
+        var values = parameters
+        values["speaker_limit"] = values["speaker_limit"] ?? "160"
+        values["sample_limit"] = values["sample_limit"] ?? "40"
+        let queryItems = values.keys.sorted().map { key in
+            URLQueryItem(name: key, value: values[key])
+        }
+        guard let url = configuredEndpointURL(
+            path: "/speakers",
+            queryItems: queryItems
+        ) else {
+            throw SyncError.server(WondL10n.t("Remote sync URL is required"))
+        }
+        let request = try authenticatedAPIRequest(url: url, method: "GET")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateHTTPResponse(response, data: data)
+        let payload = try JSONDecoder().decode(MobileSpeakersResponse.self, from: data)
+        if payload.ok == false {
+            throw SyncError.server(payload.error ?? WondL10n.t("Speakers unavailable"))
+        }
+        return payload
+    }
+
+    func fetchSpeakerSampleAudio(sampleID: Int) async throws -> Data {
+        guard let url = configuredEndpointURL(path: "/speaker-sample/\(sampleID)") else {
+            throw SyncError.server(WondL10n.t("Remote sync URL is required"))
+        }
+        let request = try authenticatedAPIRequest(url: url, method: "GET")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try validateHTTPResponse(response, data: data)
+        return data
+    }
+
     func refreshMacStatus() async {
         do {
             lastMacStatusError = nil
@@ -386,11 +419,12 @@ final class SyncService: NSObject, ObservableObject, URLSessionTaskDelegate, URL
         return nil
     }
 
-    private func configuredEndpointURL(path: String) -> URL? {
+    private func configuredEndpointURL(path: String, queryItems: [URLQueryItem] = []) -> URL? {
         guard let uploadURL = configuredRemoteURL() else { return nil }
         var components = URLComponents(url: uploadURL, resolvingAgainstBaseURL: false)
         components?.path = path
         components?.query = nil
+        components?.queryItems = queryItems.isEmpty ? nil : queryItems
         return components?.url
     }
 

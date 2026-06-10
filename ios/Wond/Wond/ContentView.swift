@@ -18,6 +18,11 @@ struct ContentView: View {
                     Label("Ask", systemImage: "magnifyingglass")
                 }
 
+            SpeakerBrowserView()
+                .tabItem {
+                    Label("Speakers", systemImage: "person.wave.2")
+                }
+
             SettingsView()
                 .tabItem {
                     Label("Settings", systemImage: "gearshape")

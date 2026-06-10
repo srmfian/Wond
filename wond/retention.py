@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from .config import Settings
+from .speakers import prune_speaker_sample_audio, speaker_sample_audio_cleanup_enabled
 from .store import Store
 from .timeutil import day_bounds, local_iso
 
@@ -20,6 +21,8 @@ class RetentionResult:
     deleted_activity_samples: int = 0
     deleted_collector_runs: int = 0
     deleted_reports: int = 0
+    pruned_speaker_sample_audio: int = 0
+    speaker_sample_audio_candidate_bytes: int = 0
     trimmed_logs: int = 0
     skipped_days: list[str] = field(default_factory=list)
     vacuumed: bool = False
@@ -32,6 +35,8 @@ class RetentionResult:
             f"- Activity samples before {self.activity_cutoff.isoformat()}: {self.deleted_activity_samples}",
             f"- Collector runs before {self.collector_runs_cutoff.isoformat()}: {self.deleted_collector_runs}",
             f"- Detailed reports before {self.reports_cutoff.isoformat()}: {self.deleted_reports}",
+            f"- Speaker sample audio files: {self.pruned_speaker_sample_audio}",
+            f"- Speaker sample audio bytes: {self.speaker_sample_audio_candidate_bytes}",
             f"- Trimmed log files: {self.trimmed_logs}",
         ]
         if self.skipped_days:
@@ -175,6 +180,10 @@ def run_retention(settings: Settings, store: Store, today: date, dry_run: bool =
         result.deleted_collector_runs = store.delete_collector_runs_before(cutoff_iso)
 
     result.deleted_reports = prune_reports(settings, reports_cutoff, dry_run)
+    if speaker_sample_audio_cleanup_enabled(getattr(settings, "speaker_recognition", None)):
+        audio_prune = prune_speaker_sample_audio(settings, store, today=today, dry_run=dry_run)
+        result.pruned_speaker_sample_audio = audio_prune.pruned_samples if not dry_run else audio_prune.candidate_samples
+        result.speaker_sample_audio_candidate_bytes = audio_prune.freed_bytes
     result.trimmed_logs = trim_logs(settings, dry_run)
 
     rows_deleted = result.deleted_observations + result.deleted_activity_samples + result.deleted_collector_runs

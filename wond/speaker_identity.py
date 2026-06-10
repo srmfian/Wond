@@ -36,6 +36,29 @@ class ExistingSpeakerMatch:
     matcher: str
     prototype_count: int = 1
     confirmed_profile: bool = False
+    trusted_profile: bool = False
+    trusted_sample_count: int = 0
+
+
+@dataclass
+class SpeakerVoicePrototype:
+    vector: np.ndarray
+    kind: str
+    support: int = 1
+    weight: float = 1.0
+
+
+@dataclass
+class SpeakerVoiceProfile:
+    prototypes: list[SpeakerVoicePrototype]
+    sample_count: int
+    trusted_sample_count: int
+    outlier_count: int
+    method: str = "robust_multi_prototype"
+
+    @property
+    def prototype_count(self) -> int:
+        return len(self.prototypes)
 
 
 _SPEECHBRAIN_MODEL: Any | None = None
@@ -81,8 +104,17 @@ def update_speaker_identity_for_sample(
         metadata={"sample_path": sample_path},
     )
 
-    auto_threshold = float(settings.speaker_recognition.get("auto_merge_threshold", 0.68))
-    candidate_threshold = float(settings.speaker_recognition.get("candidate_threshold", 0.68))
+    config = settings.speaker_recognition if isinstance(settings.speaker_recognition, dict) else {}
+    auto_threshold = float_config(config.get("auto_merge_threshold"), 0.68)
+    candidate_threshold = float_config(config.get("candidate_threshold"), 0.68)
+    confirmed_auto_threshold = float_config(
+        config.get("confirmed_profile_auto_merge_threshold"),
+        max(auto_threshold, 0.78),
+    )
+    min_auto_sample_confidence = float_config(
+        config.get("auto_merge_min_sample_confidence"),
+        float_config(config.get("confirmed_profile_min_sample_confidence"), 0.55),
+    )
     best = best_existing_speaker_match(settings, store, model=model_key, speaker_id=speaker_id, vector=vector)
     if best is None:
         confidence = refresh_identity_status(settings, store, speaker_id, model_key)
@@ -90,16 +122,36 @@ def update_speaker_identity_for_sample(
 
     target_id = best.speaker_id
     score = best.score
-    if score >= auto_threshold:
+    source_row = speaker_stats_row(store, speaker_id)
+    target_row = speaker_stats_row(store, target_id)
+    protected_target = speaker_match_requires_manual_review(target_row)
+    effective_auto_threshold = confirmed_auto_threshold if best.confirmed_profile and protected_target else auto_threshold
+    source_sample_row = store.get_speaker_sample(sample_id) if sample_id is not None else None
+    source_sample_auto_merge_safe = source_sample_safe_for_auto_merge(
+        source_sample_row,
+        threshold=min_auto_sample_confidence,
+    )
+    if score >= effective_auto_threshold and speaker_match_auto_merge_allowed(
+        best,
+        source_row=source_row,
+        target_row=target_row,
+        config=config,
+        source_confidence_threshold=candidate_threshold,
+    ) and source_sample_auto_merge_safe:
+        decision = (
+            "trusted_confirmed_profile_above_auto_learn_threshold"
+            if best.confirmed_profile
+            else "score_above_auto_merge_threshold"
+        )
         store.record_speaker_match_decision(
             source_speaker_id=speaker_id,
             target_speaker_id=target_id,
             sample_id=sample_id,
             model=model_key,
             score=score,
-            threshold=auto_threshold,
+            threshold=effective_auto_threshold,
             status="auto_merged",
-            metadata=speaker_match_metadata(best, "score_above_auto_merge_threshold"),
+            metadata=speaker_match_metadata(best, decision),
         )
         store.merge_speakers(speaker_id, target_id)
         if sample_id is not None:
@@ -116,6 +168,14 @@ def update_speaker_identity_for_sample(
         )
 
     status = "candidate" if score >= candidate_threshold else "below_threshold"
+    if status == "candidate" and not source_sample_auto_merge_safe:
+        decision = "manual_review_required_for_low_confidence_sample"
+    elif status == "candidate" and protected_target:
+        decision = "manual_review_required_for_protected_speaker"
+    elif status == "candidate":
+        decision = "manual_review_required"
+    else:
+        decision = "kept_separate"
     store.record_speaker_match_decision(
         source_speaker_id=speaker_id,
         target_speaker_id=target_id,
@@ -124,7 +184,7 @@ def update_speaker_identity_for_sample(
         score=score,
         threshold=candidate_threshold if status == "candidate" else auto_threshold,
         status=status,
-        metadata=speaker_match_metadata(best, "manual_review_required" if status == "candidate" else "kept_separate"),
+        metadata=speaker_match_metadata(best, decision),
     )
     confidence = refresh_identity_status(settings, store, speaker_id, model_key)
     return IdentityMatchResult(
@@ -268,8 +328,20 @@ def best_existing_speaker_match(
     if not isinstance(config, dict):
         config = {}
     confirmed_profiles_enabled = bool_config(config.get("confirmed_profile_matching_enabled"), True)
-    max_prototypes = int_config(config.get("confirmed_profile_max_prototypes"), 6, minimum=1, maximum=24)
+    max_prototypes = speaker_profile_max_prototypes(config)
+    confirmed_max_prototypes = int_config(
+        config.get("confirmed_profile_max_prototypes"),
+        max_prototypes,
+        minimum=1,
+        maximum=24,
+    )
+    outlier_min_similarity = speaker_profile_outlier_min_similarity(config)
     min_profile_samples = int_config(config.get("confirmed_profile_min_samples"), 2, minimum=1, maximum=24)
+    min_profile_sample_confidence = float_config(config.get("confirmed_profile_min_sample_confidence"), 0.55)
+    min_auto_sample_confidence = float_config(
+        config.get("auto_merge_min_sample_confidence"),
+        min_profile_sample_confidence,
+    )
     target_eligibility_threshold = float_config(
         config.get("candidate_threshold", config.get("auto_merge_threshold")),
         0.68,
@@ -279,39 +351,70 @@ def best_existing_speaker_match(
     if source.size <= 0:
         return None
 
-    centroids: dict[int, list[list[float]]] = {}
+    entries_by_speaker: dict[int, list[tuple[list[float], dict[str, Any]]]] = {}
     for row in target_rows:
         parsed = parse_vector(row["vector"])
         if parsed is None:
             continue
-        centroids.setdefault(int(row["speaker_id"]), []).append(parsed)
+        sample_metadata = json_dict(row["sample_metadata"] if "sample_metadata" in row.keys() else None)
+        entries_by_speaker.setdefault(int(row["speaker_id"]), []).append((parsed, sample_metadata))
 
     best: ExistingSpeakerMatch | None = None
-    for candidate_id, vectors in centroids.items():
+    for candidate_id, entries in entries_by_speaker.items():
+        vectors = [vector for vector, _metadata in entries]
         arrays = matching_embedding_arrays(vectors, dimension=source.size)
         if not arrays:
             continue
         row = speaker_rows.get(candidate_id)
-        if not speaker_cluster_match_eligible(row, threshold=target_eligibility_threshold):
-            continue
         confirmed = speaker_is_confirmed(row)
         if confirmed_profiles_enabled and confirmed and len(arrays) >= min_profile_samples:
-            score, prototype_count = confirmed_profile_score(source, arrays, max_prototypes=max_prototypes)
+            trusted_entries = trusted_confirmed_profile_entries(
+                entries,
+                dimension=source.size,
+                min_confidence=min_profile_sample_confidence,
+            )
+            if len(trusted_entries) < min_profile_samples:
+                continue
+            profile = speaker_voice_profile_from_entries(
+                trusted_entries,
+                dimension=source.size,
+                max_prototypes=confirmed_max_prototypes,
+                outlier_min_similarity=outlier_min_similarity,
+            )
+            if profile is None:
+                continue
             match = ExistingSpeakerMatch(
                 speaker_id=candidate_id,
-                score=score,
+                score=speaker_voice_profile_score(source, profile),
                 matcher="confirmed_profile",
-                prototype_count=prototype_count,
+                prototype_count=profile.prototype_count,
                 confirmed_profile=True,
+                trusted_profile=True,
+                trusted_sample_count=profile.trusted_sample_count,
             )
         else:
-            centroid = normalize_vector(np.mean(np.vstack(arrays), axis=0))
+            if not speaker_cluster_match_eligible(row, threshold=target_eligibility_threshold):
+                continue
+            profile_entries = [
+                (vector, metadata)
+                for vector, metadata in entries
+                if sample_allows_profile_match(metadata, threshold=min_auto_sample_confidence)
+            ]
+            profile = speaker_voice_profile_from_entries(
+                profile_entries,
+                dimension=source.size,
+                max_prototypes=max_prototypes,
+                outlier_min_similarity=outlier_min_similarity,
+            )
+            if profile is None:
+                continue
             match = ExistingSpeakerMatch(
                 speaker_id=candidate_id,
-                score=cosine_similarity(source, centroid),
-                matcher="centroid",
-                prototype_count=1,
+                score=speaker_voice_profile_score(source, profile),
+                matcher="speaker_profile",
+                prototype_count=profile.prototype_count,
                 confirmed_profile=confirmed,
+                trusted_sample_count=profile.trusted_sample_count,
             )
         if best is None or speaker_match_rank(match) > speaker_match_rank(best):
             best = match
@@ -326,6 +429,9 @@ def speaker_match_metadata(match: ExistingSpeakerMatch, decision: str) -> dict[s
     }
     if match.confirmed_profile:
         metadata["confirmed_profile"] = True
+    if match.trusted_profile:
+        metadata["trusted_profile"] = True
+        metadata["trusted_sample_count"] = match.trusted_sample_count
     return metadata
 
 
@@ -345,12 +451,77 @@ def speaker_is_confirmed(row: Any) -> bool:
     return str(metadata.get("speaker_review_status") or "").strip() == "confirmed"
 
 
+def speaker_match_requires_manual_review(row: Any) -> bool:
+    if row is None:
+        return False
+    metadata = json_dict(row["metadata"] if "metadata" in row.keys() else None)
+    review_status = str(metadata.get("speaker_review_status") or "").strip()
+    identity_status = str(row["identity_status"] or "").strip()
+    return review_status in {"confirmed", "auto_merged_pending_review", "needs_review"} or identity_status in {
+        "named",
+        "confirmed",
+        "accepted",
+    }
+
+
+def speaker_match_auto_merge_allowed(
+    match: ExistingSpeakerMatch,
+    *,
+    source_row: Any,
+    target_row: Any,
+    config: dict[str, Any],
+    source_confidence_threshold: float,
+) -> bool:
+    if speaker_match_requires_manual_review(source_row):
+        return False
+    if not speaker_match_requires_manual_review(target_row):
+        return True
+    if not bool_config(config.get("confirmed_profile_auto_merge_enabled"), True):
+        return False
+    if not (match.confirmed_profile and match.trusted_profile):
+        return False
+    return source_speaker_safe_for_confirmed_profile_auto_merge(
+        source_row,
+        threshold=float_config(config.get("confirmed_profile_source_min_confidence"), source_confidence_threshold),
+    )
+
+
+def source_speaker_safe_for_confirmed_profile_auto_merge(row: Any, *, threshold: float) -> bool:
+    if row is None:
+        return True
+    review_status = speaker_review_status(row)
+    if review_status in {"confirmed", "auto_merged_pending_review", "needs_review", "low_similarity_hidden"}:
+        return False
+    sample_count = speaker_sample_count(row)
+    if sample_count <= 1:
+        return True
+    confidence = speaker_confidence_value(row)
+    return confidence is not None and confidence >= threshold
+
+
+def source_sample_safe_for_auto_merge(row: Any, *, threshold: float) -> bool:
+    if row is None:
+        return True
+    metadata = json_dict(row["metadata"] if "metadata" in row.keys() else None)
+    confidence = sample_confidence_value(metadata)
+    if confidence is None:
+        return True
+    return confidence >= threshold
+
+
+def speaker_stats_row(store: Store, speaker_id: int) -> Any:
+    for row in store.list_speakers():
+        if int(row["id"]) == int(speaker_id):
+            return row
+    return store.get_speaker(speaker_id)
+
+
 def speaker_cluster_match_eligible(row: Any, *, threshold: float) -> bool:
     if row is None:
         return False
     review_status = speaker_review_status(row)
     if review_status == "confirmed":
-        return True
+        return speaker_confirmed_profile_match_eligible(row, threshold=threshold)
     if review_status in {"auto_merged_pending_review", "low_similarity_hidden", "needs_review"}:
         return False
     identity_status = str(row["identity_status"] or "").strip()
@@ -364,6 +535,16 @@ def speaker_cluster_match_eligible(row: Any, *, threshold: float) -> bool:
             return False
         return confidence >= threshold
     return True
+
+
+def speaker_confirmed_profile_match_eligible(row: Any, *, threshold: float) -> bool:
+    sample_count = speaker_sample_count(row)
+    if sample_count < 2:
+        return False
+    confidence = speaker_confidence_value(row)
+    if confidence is None:
+        return False
+    return confidence >= threshold
 
 
 def speaker_review_status(row: Any) -> str:
@@ -413,42 +594,335 @@ def matching_embedding_arrays(vectors: list[list[float]], *, dimension: int) -> 
     return arrays
 
 
+def speaker_profile_max_prototypes(config: dict[str, Any] | None) -> int:
+    if not isinstance(config, dict):
+        config = {}
+    fallback = int_config(config.get("confirmed_profile_max_prototypes"), 6, minimum=1, maximum=24)
+    return int_config(config.get("speaker_profile_max_prototypes"), fallback, minimum=1, maximum=24)
+
+
+def speaker_profile_outlier_min_similarity(config: dict[str, Any] | None) -> float:
+    if not isinstance(config, dict):
+        config = {}
+    return float_config(config.get("speaker_profile_outlier_min_similarity"), 0.55)
+
+
 def confirmed_profile_score(
     source: np.ndarray,
     vectors: list[np.ndarray],
     *,
     max_prototypes: int,
 ) -> tuple[float, int]:
-    prototypes = confirmed_profile_prototypes(vectors, max_prototypes=max_prototypes)
-    if not prototypes:
+    profile = speaker_voice_profile_from_arrays(vectors, max_prototypes=max_prototypes)
+    if profile is None:
         return -1.0, 0
-    scores = [cosine_similarity(source, prototype) for prototype in prototypes]
-    return float(max(scores)), len(prototypes)
+    return speaker_voice_profile_score(source, profile), profile.prototype_count
+
+
+def trusted_confirmed_profile_entries(
+    entries: list[tuple[list[float], dict[str, Any]]],
+    *,
+    dimension: int,
+    min_confidence: float,
+) -> list[tuple[list[float], dict[str, Any]]]:
+    trusted_entries: list[tuple[list[float], dict[str, Any]]] = []
+    fallback_entries: list[tuple[list[float], dict[str, Any]]] = []
+    for vector, metadata in entries:
+        if len(vector) != dimension:
+            continue
+        sample_confidence = sample_confidence_value(metadata)
+        if sample_confidence is None or sample_confidence < min_confidence:
+            continue
+        if metadata.get("representative_sample") is True:
+            trusted_entries.append((vector, metadata))
+        else:
+            fallback_entries.append((vector, metadata))
+    return trusted_entries or fallback_entries
+
+
+def sample_confidence_value(metadata: dict[str, Any]) -> float | None:
+    try:
+        value = float(metadata.get("sample_confidence"))
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(value):
+        return None
+    return value
+
+
+def sample_allows_profile_match(metadata: dict[str, Any], *, threshold: float) -> bool:
+    confidence = sample_confidence_value(metadata)
+    if confidence is None:
+        return True
+    return confidence >= threshold
+
+
+def sample_allows_centroid_match(metadata: dict[str, Any], *, threshold: float) -> bool:
+    return sample_allows_profile_match(metadata, threshold=threshold)
 
 
 def confirmed_profile_prototypes(vectors: list[np.ndarray], *, max_prototypes: int) -> list[np.ndarray]:
-    if not vectors:
+    profile = speaker_voice_profile_from_arrays(vectors, max_prototypes=max_prototypes)
+    if profile is None:
         return []
-    matrix = np.vstack(vectors)
-    centroid = normalize_vector(np.mean(matrix, axis=0))
-    prototypes: list[np.ndarray] = [centroid]
-    if max_prototypes <= 1:
-        return prototypes
+    return [prototype.vector for prototype in profile.prototypes]
 
-    selected: list[int] = []
-    first_index = max(range(len(vectors)), key=lambda index: cosine_similarity(vectors[index], centroid))
-    selected.append(first_index)
-    prototypes.append(vectors[first_index])
 
-    while len(prototypes) < max_prototypes and len(selected) < len(vectors):
-        remaining = [index for index in range(len(vectors)) if index not in selected]
-        next_index = min(
-            remaining,
-            key=lambda index: max(cosine_similarity(vectors[index], vectors[chosen]) for chosen in selected),
+def speaker_voice_profile_from_vectors(
+    vectors: list[list[float]],
+    *,
+    max_prototypes: int = 6,
+    outlier_min_similarity: float = 0.55,
+) -> SpeakerVoiceProfile | None:
+    if not vectors:
+        return None
+    dimension = len(vectors[0])
+    entries = [(vector, {}) for vector in vectors if len(vector) == dimension]
+    return speaker_voice_profile_from_entries(
+        entries,
+        dimension=dimension,
+        max_prototypes=max_prototypes,
+        outlier_min_similarity=outlier_min_similarity,
+    )
+
+
+def speaker_voice_profile_from_arrays(
+    vectors: list[np.ndarray],
+    *,
+    max_prototypes: int = 6,
+    outlier_min_similarity: float = 0.55,
+) -> SpeakerVoiceProfile | None:
+    if not vectors:
+        return None
+    dimension = int(vectors[0].size)
+    entries = [(vector.astype(float).tolist(), {}) for vector in vectors if int(vector.size) == dimension]
+    return speaker_voice_profile_from_entries(
+        entries,
+        dimension=dimension,
+        max_prototypes=max_prototypes,
+        outlier_min_similarity=outlier_min_similarity,
+    )
+
+
+def speaker_voice_profile_from_entries(
+    entries: list[tuple[list[float], dict[str, Any]]],
+    *,
+    dimension: int,
+    max_prototypes: int = 6,
+    outlier_min_similarity: float = 0.55,
+) -> SpeakerVoiceProfile | None:
+    normalized_entries: list[tuple[np.ndarray, dict[str, Any]]] = []
+    for vector, metadata in entries:
+        if len(vector) != dimension:
+            continue
+        array = normalize_vector(np.array(vector, dtype=float))
+        if array.size != dimension:
+            continue
+        normalized_entries.append((array, metadata))
+    if not normalized_entries:
+        return None
+
+    arrays = [array for array, _metadata in normalized_entries]
+    metadata_rows = [metadata for _array, metadata in normalized_entries]
+    centralities = speaker_profile_centralities(arrays)
+    keep_indices = speaker_profile_keep_indices(
+        centralities,
+        metadata_rows,
+        outlier_min_similarity=outlier_min_similarity,
+    )
+    if not keep_indices:
+        keep_indices = [max(range(len(arrays)), key=lambda index: centralities[index])]
+    outlier_count = max(0, len(arrays) - len(keep_indices))
+    weights = [
+        speaker_profile_sample_weight(metadata_rows[index], centrality=centralities[index])
+        for index in keep_indices
+    ]
+    kept_arrays = [arrays[index] for index in keep_indices]
+    centroid = weighted_normalized_vector(kept_arrays, weights)
+    if centroid.size != dimension:
+        return None
+
+    prototypes: list[SpeakerVoicePrototype] = [
+        SpeakerVoicePrototype(
+            vector=centroid,
+            kind="robust_weighted_centroid",
+            support=len(kept_arrays),
+            weight=sum(weights),
         )
-        selected.append(next_index)
-        prototypes.append(vectors[next_index])
-    return prototypes
+    ]
+    if max_prototypes <= 1:
+        return SpeakerVoiceProfile(
+            prototypes=prototypes[:max_prototypes],
+            sample_count=len(arrays),
+            trusted_sample_count=len(keep_indices),
+            outlier_count=outlier_count,
+        )
+
+    selected_indices: list[int] = []
+    first_index = max(
+        keep_indices,
+        key=lambda index: (
+            cosine_similarity(arrays[index], centroid),
+            speaker_profile_sample_weight(metadata_rows[index], centrality=centralities[index]),
+            -index,
+        ),
+    )
+    selected_indices.append(first_index)
+    prototypes.append(
+        SpeakerVoicePrototype(
+            vector=arrays[first_index],
+            kind="central_medoid",
+            support=speaker_profile_support(
+                arrays[first_index],
+                kept_arrays,
+                outlier_min_similarity=outlier_min_similarity,
+            ),
+            weight=speaker_profile_sample_weight(metadata_rows[first_index], centrality=centralities[first_index]),
+        )
+    )
+
+    while len(prototypes) < max_prototypes and len(selected_indices) < len(keep_indices):
+        remaining = [index for index in keep_indices if index not in selected_indices]
+        next_index = max(
+            remaining,
+            key=lambda index: speaker_profile_diversity_rank(
+                arrays[index],
+                [arrays[selected] for selected in selected_indices],
+                metadata_rows[index],
+                centrality=centralities[index],
+            ),
+        )
+        if max(cosine_similarity(arrays[next_index], prototype.vector) for prototype in prototypes) >= 0.995:
+            selected_indices.append(next_index)
+            continue
+        selected_indices.append(next_index)
+        prototypes.append(
+            SpeakerVoicePrototype(
+                vector=arrays[next_index],
+                kind="diverse_medoid",
+                support=speaker_profile_support(
+                    arrays[next_index],
+                    kept_arrays,
+                    outlier_min_similarity=outlier_min_similarity,
+                ),
+                weight=speaker_profile_sample_weight(metadata_rows[next_index], centrality=centralities[next_index]),
+            )
+        )
+    return SpeakerVoiceProfile(
+        prototypes=prototypes[:max_prototypes],
+        sample_count=len(arrays),
+        trusted_sample_count=len(keep_indices),
+        outlier_count=outlier_count,
+    )
+
+
+def speaker_profile_centralities(arrays: list[np.ndarray]) -> list[float]:
+    if len(arrays) <= 1:
+        return [1.0 for _array in arrays]
+    centralities: list[float] = []
+    support_count = 1 if len(arrays) <= 3 else 2
+    for index, vector in enumerate(arrays):
+        scores = [
+            cosine_similarity(vector, other)
+            for other_index, other in enumerate(arrays)
+            if other_index != index
+        ]
+        scores.sort(reverse=True)
+        centralities.append(float(sum(scores[:support_count]) / max(1, min(support_count, len(scores)))))
+    return centralities
+
+
+def speaker_profile_keep_indices(
+    centralities: list[float],
+    metadata_rows: list[dict[str, Any]],
+    *,
+    outlier_min_similarity: float,
+) -> list[int]:
+    if len(centralities) <= 2:
+        return list(range(len(centralities)))
+    keep: list[int] = []
+    for index, centrality in enumerate(centralities):
+        metadata = metadata_rows[index]
+        confidence = sample_confidence_value(metadata)
+        representative = metadata.get("representative_sample") is True
+        if centrality >= outlier_min_similarity:
+            keep.append(index)
+        elif representative and confidence is not None and confidence >= outlier_min_similarity:
+            keep.append(index)
+    return keep
+
+
+def speaker_profile_sample_weight(metadata: dict[str, Any], *, centrality: float) -> float:
+    confidence = sample_confidence_value(metadata)
+    weight = 1.0 if confidence is None else max(0.05, min(1.0, confidence))
+    if metadata.get("representative_sample") is True:
+        weight += 0.35
+    if metadata.get("status") == "ok":
+        weight += 0.1
+    role = str(metadata.get("sample_role") or "")
+    if role in {"manual_detached_sample", "overlap_separated_candidate"}:
+        weight *= 0.8
+    return max(0.01, weight * max(0.05, centrality))
+
+
+def speaker_profile_diversity_rank(
+    vector: np.ndarray,
+    selected_vectors: list[np.ndarray],
+    metadata: dict[str, Any],
+    *,
+    centrality: float,
+) -> tuple[float, float, float]:
+    if not selected_vectors:
+        diversity = 1.0
+    else:
+        diversity = 1.0 - max(cosine_similarity(vector, selected) for selected in selected_vectors)
+    quality = speaker_profile_sample_weight(metadata, centrality=centrality)
+    return (diversity * quality, quality, centrality)
+
+
+def speaker_profile_support(
+    vector: np.ndarray,
+    arrays: list[np.ndarray],
+    *,
+    outlier_min_similarity: float,
+) -> int:
+    return sum(1 for other in arrays if cosine_similarity(vector, other) >= outlier_min_similarity)
+
+
+def weighted_normalized_vector(arrays: list[np.ndarray], weights: list[float]) -> np.ndarray:
+    if not arrays:
+        return np.array([], dtype=float)
+    matrix = np.vstack(arrays)
+    weight_array = np.array(weights, dtype=float)
+    if weight_array.size != len(arrays) or float(np.sum(weight_array)) <= 0:
+        weight_array = np.ones(len(arrays), dtype=float)
+    return normalize_vector(np.average(matrix, axis=0, weights=weight_array))
+
+
+def speaker_voice_profile_score(source: np.ndarray | list[float], profile: SpeakerVoiceProfile) -> float:
+    source_array = normalize_vector(np.array(source, dtype=float))
+    if source_array.size <= 0 or not profile.prototypes:
+        return -1.0
+    return float(max(cosine_similarity(source_array, prototype.vector) for prototype in profile.prototypes))
+
+
+def speaker_voice_profile_core_score(source: np.ndarray | list[float], profile: SpeakerVoiceProfile) -> float:
+    source_array = normalize_vector(np.array(source, dtype=float))
+    if source_array.size <= 0 or not profile.prototypes:
+        return -1.0
+    return float(cosine_similarity(source_array, profile.prototypes[0].vector))
+
+
+def speaker_voice_profiles_similarity(left: SpeakerVoiceProfile, right: SpeakerVoiceProfile) -> float:
+    if not left.prototypes or not right.prototypes:
+        return -1.0
+    return float(
+        max(
+            cosine_similarity(left_prototype.vector, right_prototype.vector)
+            for left_prototype in left.prototypes
+            for right_prototype in right.prototypes
+        )
+    )
 
 
 def bool_config(value: Any, default: bool) -> bool:

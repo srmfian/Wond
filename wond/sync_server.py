@@ -14,14 +14,29 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 from .audio_analysis import analyze_audio_for_day
 from .config import Settings
+from .dashboard_shared import row_dict, row_payload
 from .mobile import event_to_observation, ingest_mobile_export, load_mobile_events
+from .speakers import (
+    speaker_confidence_summary,
+    speaker_review_confidence_threshold,
+    speaker_sample_payload as full_speaker_sample_payload,
+    speaker_threshold_config,
+)
 from .store import Store
 from .summarizer import write_daily_report
 from .timeutil import utc_iso
 from .version import __version__
+
+
+DEFAULT_MOBILE_SPEAKER_LIMIT = 160
+MOBILE_SPEAKER_MAX_LIMIT = 500
+DEFAULT_MOBILE_SPEAKER_SAMPLE_LIMIT = 40
+MOBILE_SPEAKER_MAX_SAMPLE_LIMIT = 200
+MOBILE_SPEAKER_AUTO_MERGE_SOURCE_LIMIT = 5
 
 
 @dataclass
@@ -97,12 +112,29 @@ def make_handler(settings: Settings):
                     },
                 )
                 return
-            path = self.path.split("?", 1)[0]
+            parsed = urlsplit(self.path)
+            path = parsed.path
             if path == "/status":
                 if not verify_api_auth(settings, self.headers, "GET", self.path, b""):
                     self.send_json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "unauthorized"})
                     return
                 self.send_json(HTTPStatus.OK, mobile_status_payload(settings, mac_online=True))
+                return
+            if path == "/speakers":
+                if not verify_api_auth(settings, self.headers, "GET", self.path, b""):
+                    self.send_json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "unauthorized"})
+                    return
+                self.send_json(HTTPStatus.OK, mobile_speakers_payload(settings, parse_qs(parsed.query)))
+                return
+            if path.startswith("/speaker-sample/"):
+                if not verify_api_auth(settings, self.headers, "GET", self.path, b""):
+                    self.send_json(HTTPStatus.UNAUTHORIZED, {"ok": False, "error": "unauthorized"})
+                    return
+                sample_id = parse_int(path.rsplit("/", 1)[-1])
+                if sample_id is None:
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "invalid_sample_id"})
+                    return
+                self.send_speaker_sample(sample_id)
                 return
             if path == "/speaker-review":
                 if not verify_api_auth(settings, self.headers, "GET", self.path, b""):
@@ -288,6 +320,469 @@ def make_handler(settings: Settings):
             print(f"{self.address_string()} - {format % args}")
 
     return SyncRequestHandler
+
+
+def mobile_speakers_payload(settings: Settings, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
+    query = query or {}
+    speaker_filter = query_value(query, "speaker_filter", "active")
+    speaker_sort = query_value(query, "speaker_sort", "review")
+    speaker_search = query_value(query, "speaker_search", "")
+    speaker_limit = mobile_query_limit(query, "speaker_limit", DEFAULT_MOBILE_SPEAKER_LIMIT, MOBILE_SPEAKER_MAX_LIMIT)
+    sample_scope = query_value(query, "sample_scope", "visible")
+    sample_filter = query_value(query, "sample_filter", "needsWork")
+    sample_sort = query_value(query, "sample_sort", "needsWork")
+    sample_search = query_value(query, "sample_search", "")
+    selected_speaker_ids = parse_id_set(query_value(query, "selected_speaker_ids", ""))
+    sample_limit = mobile_query_limit(
+        query,
+        "sample_limit",
+        DEFAULT_MOBILE_SPEAKER_SAMPLE_LIMIT,
+        MOBILE_SPEAKER_MAX_SAMPLE_LIMIT,
+    )
+    thresholds = speaker_threshold_config(settings)
+    threshold_config = thresholds.get("speaker_recognition") if isinstance(thresholds, dict) else {}
+    candidate_threshold = float((threshold_config or {}).get("candidate_threshold") or 0.68)
+    confidence_threshold = speaker_review_confidence_threshold(settings)
+    store = Store(settings.db_path)
+    try:
+        all_speakers = []
+        for row in store.list_speakers():
+            speaker_id = int(row["id"])
+            stats = store.speaker_sample_evidence_stats(speaker_id)
+            embedding_count = int(
+                scalar(store, "SELECT count(*) FROM speaker_embeddings WHERE speaker_id = ?", (speaker_id,)) or 0
+            )
+            all_speakers.append(
+                row_payload(
+                    row,
+                    extra={
+                        "metadata": compact_mobile_speaker_metadata(row["metadata"]),
+                        "sample_count": row["sample_count"],
+                        "alias_count": row["alias_count"],
+                        "latest_sample_at": row["latest_sample_at"],
+                        "evidence": row_dict(stats),
+                        "embedding_count": embedding_count,
+                        "confidence_summary": speaker_confidence_summary(
+                            row,
+                            sample_count=int(stats["sample_count"] or 0),
+                            embedding_count=embedding_count,
+                            confidence_threshold=confidence_threshold,
+                        ),
+                    },
+                )
+            )
+
+        filtered_speakers = filter_mobile_speakers(
+            all_speakers,
+            speaker_filter=speaker_filter,
+            speaker_search=speaker_search,
+            candidate_threshold=candidate_threshold,
+        )
+        sorted_speakers = sort_mobile_speakers(filtered_speakers, speaker_sort, candidate_threshold)
+        speaker_rows = sorted_speakers[:speaker_limit]
+        filtered_speaker_ids = {int(row["id"]) for row in filtered_speakers}
+
+        all_samples = []
+        for row in store.list_speaker_samples(None):
+            item = full_speaker_sample_payload(row)
+            if (item.get("metadata") or {}).get("sample_role") == "mixed_parent_archived":
+                continue
+            all_samples.append(item)
+
+        scoped_samples = scope_mobile_samples(
+            all_samples,
+            sample_scope=sample_scope,
+            selected_speaker_ids=selected_speaker_ids,
+            visible_speaker_ids=filtered_speaker_ids,
+        )
+        filtered_samples = filter_mobile_samples(
+            scoped_samples,
+            sample_filter=sample_filter,
+            sample_search=sample_search,
+            candidate_threshold=candidate_threshold,
+        )
+        sample_rows = sort_mobile_samples(filtered_samples, sample_sort, candidate_threshold)[:sample_limit]
+        return {
+            "ok": True,
+            "speakers": speaker_rows,
+            "samples": sample_rows,
+            "summary": {
+                "active_speakers": mobile_speaker_count(all_speakers, "active", candidate_threshold),
+                "confirmed_speakers": sum(1 for row in all_speakers if speaker_review_status(row) == "confirmed"),
+                "pending_auto": mobile_speaker_count(all_speakers, "pendingAuto", candidate_threshold),
+                "hidden_speakers": mobile_speaker_count(all_speakers, "hidden", candidate_threshold),
+                "samples": len(all_samples),
+            },
+            "speaker_counts": {
+                key: mobile_speaker_count(all_speakers, key, candidate_threshold)
+                for key in ["active", "pendingAuto", "lowConfidence", "review", "hidden", "all"]
+            },
+            "speaker_total": len(filtered_speakers),
+            "speakers_truncated": len(filtered_speakers) > len(speaker_rows),
+            "sample_counts": {
+                key: mobile_sample_count(scoped_samples, key, candidate_threshold)
+                for key in ["all", "needsWork", "lowConfidence", "missingEmbedding", "representative", "playable", "detached"]
+            },
+            "sample_total": len(all_samples),
+            "sample_scope_total": len(scoped_samples),
+            "sample_filtered_total": len(filtered_samples),
+            "samples_truncated": len(filtered_samples) > len(sample_rows),
+            "config": thresholds,
+        }
+    finally:
+        store.close()
+
+
+def query_value(query: dict[str, list[str]], key: str, default: str = "") -> str:
+    values = query.get(key) or []
+    if not values:
+        return default
+    return str(values[0] or default)
+
+
+def mobile_query_limit(query: dict[str, list[str]], key: str, default: int, maximum: int) -> int:
+    raw = (query.get(key) or [None])[0]
+    value = parse_int(raw) if raw is not None else None
+    if value is None:
+        value = default
+    return max(0, min(value, maximum))
+
+
+def parse_id_set(raw: str) -> set[int]:
+    ids: set[int] = set()
+    for item in str(raw or "").split(","):
+        value = parse_int(item.strip())
+        if value is not None and value > 0:
+            ids.add(value)
+    return ids
+
+
+def mobile_key(value: str) -> str:
+    return re.sub(r"[\s_-]+", "", str(value or "")).lower()
+
+
+def speaker_review_status(speaker: dict[str, Any]) -> str:
+    metadata = speaker.get("metadata") if isinstance(speaker.get("metadata"), dict) else {}
+    return str((metadata or {}).get("speaker_review_status") or "").strip()
+
+
+def speaker_is_auto_pending(speaker: dict[str, Any]) -> bool:
+    return speaker_review_status(speaker) == "auto_merged_pending_review"
+
+
+def speaker_is_hidden(speaker: dict[str, Any]) -> bool:
+    metadata = speaker.get("metadata") if isinstance(speaker.get("metadata"), dict) else {}
+    return bool((metadata or {}).get("speaker_hidden")) or speaker_review_status(speaker) == "low_similarity_hidden"
+
+
+def speaker_needs_review(speaker: dict[str, Any]) -> bool:
+    if speaker_is_auto_pending(speaker):
+        return True
+    if speaker_review_status(speaker) == "confirmed":
+        return False
+    if speaker.get("identity_status") == "provisional" or int(speaker.get("sample_count") or 0) <= 0:
+        return True
+    name = str(speaker.get("display_name") or "").strip()
+    if not name:
+        return True
+    if parse_int(name) is not None:
+        return True
+    return bool(re.match(r"(?i)^speaker\s*\d+$", name))
+
+
+def speaker_has_low_confidence(speaker: dict[str, Any], candidate_threshold: float) -> bool:
+    if speaker_review_status(speaker) == "confirmed":
+        return False
+    confidence = parse_float(speaker.get("confidence"))
+    return confidence is not None and 0 < confidence < candidate_threshold
+
+
+def filter_mobile_speakers(
+    rows: list[dict[str, Any]],
+    *,
+    speaker_filter: str,
+    speaker_search: str,
+    candidate_threshold: float,
+) -> list[dict[str, Any]]:
+    mode = mobile_key(speaker_filter)
+    query = str(speaker_search or "").strip().lower()
+    result = []
+    for speaker in rows:
+        if mode not in {"hidden", "all"} and speaker_is_hidden(speaker):
+            continue
+        if mode == "active" and speaker_is_hidden(speaker):
+            continue
+        if mode == "pendingauto" and not speaker_is_auto_pending(speaker):
+            continue
+        if mode == "review" and (speaker_is_hidden(speaker) or not speaker_needs_review(speaker)):
+            continue
+        if mode == "lowconfidence" and (speaker_is_hidden(speaker) or not speaker_has_low_confidence(speaker, candidate_threshold)):
+            continue
+        if mode == "hidden" and not speaker_is_hidden(speaker):
+            continue
+        if query and query not in mobile_speaker_search_text(speaker):
+            continue
+        result.append(speaker)
+    return result
+
+
+def mobile_speaker_search_text(speaker: dict[str, Any]) -> str:
+    metadata = speaker.get("metadata") if isinstance(speaker.get("metadata"), dict) else {}
+    sources = metadata.get("auto_merge_sources") if isinstance(metadata, dict) else []
+    source_text = " ".join(
+        f"{source.get('source_display_name') or ''} {source.get('source_speaker_id') or ''}"
+        for source in sources
+        if isinstance(source, dict)
+    )
+    evidence = speaker.get("evidence") if isinstance(speaker.get("evidence"), dict) else {}
+    values = [
+        speaker.get("id"),
+        speaker.get("display_name"),
+        speaker.get("identity_status"),
+        speaker_review_status(speaker),
+        source_text,
+        speaker.get("confidence"),
+        speaker.get("sample_count"),
+        speaker.get("alias_count"),
+        evidence.get("day_count") if isinstance(evidence, dict) else "",
+        evidence.get("latest_seen_at") if isinstance(evidence, dict) else "",
+    ]
+    return " ".join(str(value or "") for value in values).lower()
+
+
+def sort_mobile_speakers(rows: list[dict[str, Any]], speaker_sort: str, candidate_threshold: float) -> list[dict[str, Any]]:
+    mode = mobile_key(speaker_sort)
+    if mode == "samples":
+        return sorted(rows, key=lambda row: (-int(row.get("sample_count") or 0), int(row.get("id") or 0)))
+    if mode == "confidence":
+        return sorted(rows, key=lambda row: (-(parse_float(row.get("confidence")) or -1), int(row.get("id") or 0)))
+    if mode == "recent":
+        return sorted(rows, key=lambda row: (speaker_visible_time(row) or "", -int(row.get("id") or 0)), reverse=True)
+    if mode == "id":
+        return sorted(rows, key=lambda row: int(row.get("id") or 0))
+    return sorted(
+        rows,
+        key=lambda row: (
+            speaker_review_score(row, candidate_threshold),
+            speaker_visible_time(row) or "",
+            -int(row.get("id") or 0),
+        ),
+        reverse=True,
+    )
+
+
+def speaker_review_score(speaker: dict[str, Any], candidate_threshold: float) -> int:
+    return (
+        (2000 if speaker_is_auto_pending(speaker) else 0)
+        + (1000 if speaker_needs_review(speaker) else 0)
+        + (200 if int(speaker.get("sample_count") or 0) <= 0 else 0)
+        + (100 if speaker_has_low_confidence(speaker, candidate_threshold) else 0)
+    )
+
+
+def speaker_visible_time(speaker: dict[str, Any]) -> str:
+    evidence = speaker.get("evidence") if isinstance(speaker.get("evidence"), dict) else {}
+    return str(
+        (evidence or {}).get("latest_seen_at")
+        or speaker.get("latest_sample_at")
+        or speaker.get("created_at")
+        or ""
+    )
+
+
+def mobile_speaker_count(rows: list[dict[str, Any]], speaker_filter: str, candidate_threshold: float) -> int:
+    return len(
+        filter_mobile_speakers(
+            rows,
+            speaker_filter=speaker_filter,
+            speaker_search="",
+            candidate_threshold=candidate_threshold,
+        )
+    )
+
+
+def scope_mobile_samples(
+    rows: list[dict[str, Any]],
+    *,
+    sample_scope: str,
+    selected_speaker_ids: set[int],
+    visible_speaker_ids: set[int],
+) -> list[dict[str, Any]]:
+    mode = mobile_key(sample_scope)
+    if mode == "selected":
+        if not selected_speaker_ids:
+            return []
+        return [row for row in rows if sample_speaker_id(row) in selected_speaker_ids]
+    if mode == "all":
+        return rows
+    return [row for row in rows if sample_speaker_id(row) in visible_speaker_ids]
+
+
+def filter_mobile_samples(
+    rows: list[dict[str, Any]],
+    *,
+    sample_filter: str,
+    sample_search: str,
+    candidate_threshold: float,
+) -> list[dict[str, Any]]:
+    mode = mobile_key(sample_filter)
+    query = str(sample_search or "").strip().lower()
+    result = []
+    for sample in rows:
+        if mode == "needswork" and not (
+            sample_has_low_confidence(sample, candidate_threshold)
+            or sample_missing_embedding(sample)
+            or sample_has_error(sample)
+        ):
+            continue
+        if mode == "lowconfidence" and not sample_has_low_confidence(sample, candidate_threshold):
+            continue
+        if mode == "missingembedding" and not sample_missing_embedding(sample):
+            continue
+        if mode == "representative" and not sample_is_representative(sample):
+            continue
+        if mode == "playable" and not sample.get("sample_path"):
+            continue
+        if mode == "detached" and not sample_is_detached(sample):
+            continue
+        if query and query not in mobile_sample_search_text(sample):
+            continue
+        result.append(sample)
+    return result
+
+
+def sort_mobile_samples(rows: list[dict[str, Any]], sample_sort: str, candidate_threshold: float) -> list[dict[str, Any]]:
+    mode = mobile_key(sample_sort)
+    if mode == "recent":
+        return sorted(rows, key=lambda row: (str(row.get("created_at") or ""), int(row.get("id") or 0)), reverse=True)
+    if mode == "speaker":
+        return sorted(rows, key=lambda row: (str(row.get("speaker_name") or row.get("speaker_id") or ""), int(row.get("id") or 0)))
+    if mode == "duration":
+        return sorted(rows, key=lambda row: (-sample_duration(row), -int(row.get("id") or 0)))
+    return sorted(rows, key=lambda row: sample_needs_work_sort_key(row, candidate_threshold))
+
+
+def sample_needs_work_sort_key(sample: dict[str, Any], candidate_threshold: float) -> tuple[Any, ...]:
+    confidence = sample_confidence_value(sample)
+    has_confidence = confidence is not None
+    return (
+        -sample_review_score(sample, candidate_threshold),
+        confidence if has_confidence else 2.0,
+        0 if has_confidence else 1,
+        -int(sample.get("id") or 0),
+    )
+
+
+def mobile_sample_count(rows: list[dict[str, Any]], sample_filter: str, candidate_threshold: float) -> int:
+    return len(
+        filter_mobile_samples(
+            rows,
+            sample_filter=sample_filter,
+            sample_search="",
+            candidate_threshold=candidate_threshold,
+        )
+    )
+
+
+def sample_speaker_id(sample: dict[str, Any]) -> int | None:
+    return parse_int(sample.get("speaker_id"))
+
+
+def sample_metadata(sample: dict[str, Any]) -> dict[str, Any]:
+    metadata = sample.get("metadata")
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def sample_confidence_value(sample: dict[str, Any]) -> float | None:
+    return parse_float(sample_metadata(sample).get("sample_confidence"))
+
+
+def sample_has_low_confidence(sample: dict[str, Any], candidate_threshold: float) -> bool:
+    confidence = sample_confidence_value(sample)
+    return confidence is not None and 0 < confidence < candidate_threshold
+
+
+def sample_has_error(sample: dict[str, Any]) -> bool:
+    metadata = sample_metadata(sample)
+    status = str(metadata.get("status") or "").lower()
+    return bool(metadata.get("error")) or status in {"error", "fail", "failed"}
+
+
+def sample_missing_embedding(sample: dict[str, Any]) -> bool:
+    metadata = sample_metadata(sample)
+    return (
+        metadata.get("sample_confidence_model") is None
+        and metadata.get("embedding_model") is None
+        and metadata.get("embedding_repair_status") != "ok"
+    )
+
+
+def sample_is_representative(sample: dict[str, Any]) -> bool:
+    return bool(sample_metadata(sample).get("representative_sample"))
+
+
+def sample_is_detached(sample: dict[str, Any]) -> bool:
+    return "detached" in str(sample_metadata(sample).get("sample_role") or "")
+
+
+def sample_review_score(sample: dict[str, Any], candidate_threshold: float) -> int:
+    return (
+        (3000 if sample_missing_embedding(sample) else 0)
+        + (2000 if sample_has_low_confidence(sample, candidate_threshold) else 0)
+        + (1000 if sample_has_error(sample) else 0)
+    )
+
+
+def sample_duration(sample: dict[str, Any]) -> float:
+    start = parse_float(sample.get("start_seconds")) or 0.0
+    end = parse_float(sample.get("end_seconds")) or 0.0
+    return max(0.0, end - start)
+
+
+def mobile_sample_search_text(sample: dict[str, Any]) -> str:
+    metadata = sample_metadata(sample)
+    values = [
+        sample.get("id"),
+        sample.get("speaker_id"),
+        sample.get("speaker_name"),
+        sample.get("observation_id"),
+        sample.get("source_key"),
+        sample.get("transcript"),
+        sample.get("created_at"),
+        metadata.get("status"),
+        metadata.get("error"),
+        metadata.get("local_label"),
+        metadata.get("sample_role"),
+        metadata.get("sample_confidence"),
+        metadata.get("embedding_repair_status"),
+    ]
+    return " ".join(str(value or "") for value in values).lower()
+
+
+def parse_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def compact_mobile_speaker_metadata(raw: Any) -> dict[str, Any]:
+    metadata = json_object(raw)
+    compact: dict[str, Any] = {}
+    for key in ["speaker_review_status", "speaker_hidden", "hidden_threshold"]:
+        if key in metadata:
+            compact[key] = metadata[key]
+    sources = metadata.get("auto_merge_sources")
+    if isinstance(sources, list):
+        compact["auto_merge_source_count"] = len(sources)
+        compact["auto_merge_sources"] = [
+            source
+            for source in sources[-MOBILE_SPEAKER_AUTO_MERGE_SOURCE_LIMIT:]
+            if isinstance(source, dict)
+        ]
+    return compact
 
 
 def speaker_review_payload(settings: Settings) -> dict[str, Any]:
@@ -747,18 +1242,6 @@ def scalar(store: Store, sql: str, params: tuple[Any, ...] = ()) -> Any:
     return row[0] if row else None
 
 
-def json_object(raw: Any) -> dict[str, Any]:
-    if isinstance(raw, dict):
-        return raw
-    if not raw:
-        return {}
-    try:
-        value = json.loads(str(raw))
-    except json.JSONDecodeError:
-        return {}
-    return value if isinstance(value, dict) else {}
-
-
 def cleanup_uploaded_files_after_import(settings: Settings, *paths: Path) -> MobileSyncCleanupResult:
     if not mobile_sync_bool(settings, "delete_uploads_after_import", True):
         return MobileSyncCleanupResult()
@@ -878,12 +1361,14 @@ def metadata_values(value: Any):
         yield value
 
 
-def json_object(raw: str | None) -> dict[str, Any]:
+def json_object(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
     if not raw:
         return {}
     try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
+        data = json.loads(str(raw))
+    except (TypeError, json.JSONDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
 

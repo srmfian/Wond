@@ -53,10 +53,14 @@ from .speakers import (
     auto_organize_speakers,
     collapse_vad_chunk_speakers,
     detach_speaker_sample,
+    mark_speaker_audio_protection,
     mark_speaker_review_status,
+    mark_speaker_sample_audio_protection,
     pending_speaker_match_groups,
+    prune_speaker_sample_audio,
     refresh_speaker_sample_confidences,
     refresh_representative_speaker_samples,
+    representative_min_sample_confidence,
     repair_missing_speaker_embeddings,
     repair_speaker_sample_clips,
     repair_speaker_sample_text,
@@ -516,6 +520,7 @@ def command_speakers(args: argparse.Namespace) -> int:
                 threshold=args.threshold,
                 max_merges=max_merges,
                 hide_unmatched=not args.keep_unmatched_visible,
+                allow_pending_review=args.continue_pending_review,
             )
             for line in result.lines():
                 print(line)
@@ -537,6 +542,7 @@ def command_speakers(args: argparse.Namespace) -> int:
                 max_merges=args.max_merges,
                 recut=not args.no_recut,
                 hide_unmatched=not args.keep_unmatched_visible,
+                exclude_speaker_ids=args.exclude_speaker_id,
             )
             for line in result.lines():
                 print(line)
@@ -619,6 +625,40 @@ def command_speakers(args: argparse.Namespace) -> int:
                 print(f"{row['speaker_id']}: {row['speaker_name']}{span} {sample_path}{transcript}")
             return 0
 
+        if args.speaker_command == "prune-sample-audio":
+            day = parse_day(args.date, settings.timezone)
+            result = prune_speaker_sample_audio(
+                settings,
+                store,
+                today=day,
+                dry_run=not args.apply,
+                older_than_days=args.older_than_days,
+                limit=args.limit,
+            )
+            for line in result.lines():
+                print(line)
+            return 1 if result.failed else 0
+
+        if args.speaker_command == "protect-sample":
+            result = mark_speaker_sample_audio_protection(
+                store,
+                sample_ids=args.sample_ids,
+                protected=not args.unprotect,
+            )
+            for line in result.lines():
+                print(line)
+            return 1 if result.missing else 0
+
+        if args.speaker_command == "protect-speaker-audio":
+            result = mark_speaker_audio_protection(
+                store,
+                speaker_ids=args.speaker_ids,
+                protected=not args.unprotect,
+            )
+            for line in result.lines():
+                print(line)
+            return 1 if result.missing else 0
+
         if args.speaker_command == "detach-sample":
             result = detach_speaker_sample(
                 settings,
@@ -671,6 +711,11 @@ def command_speakers(args: argparse.Namespace) -> int:
                 store,
                 speaker_ids=args.speaker_ids or None,
                 per_speaker=args.per_speaker,
+                min_confidence=(
+                    args.min_confidence
+                    if args.min_confidence is not None
+                    else representative_min_sample_confidence(settings.speaker_recognition)
+                ),
             )
             for line in result.lines():
                 print(line)
@@ -1180,6 +1225,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_speakers_auto_organize.add_argument("--threshold", type=float, default=None, help="Auto-merge threshold. Defaults to config.")
     p_speakers_auto_organize.add_argument("--max-merges", type=int, default=None, help="Maximum merges to apply in one run. Defaults to config.")
     p_speakers_auto_organize.add_argument("--keep-unmatched-visible", action="store_true", help="Do not hide auto voices that cannot be merged.")
+    p_speakers_auto_organize.add_argument(
+        "--continue-pending-review",
+        action="store_true",
+        help="Allow auto-merged pending-review voices to keep merging when cluster stability remains high.",
+    )
     p_speakers_auto_organize.add_argument("--apply", action="store_true", help="Actually organize speakers.")
     p_speakers_auto_organize.set_defaults(func=command_speakers)
 
@@ -1191,6 +1241,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_speakers_reset_regroup.add_argument("--max-merges", type=int, default=500, help="Maximum merges to apply after reset.")
     p_speakers_reset_regroup.add_argument("--keep-unmatched-visible", action="store_true", help="Do not hide voices that cannot be merged.")
     p_speakers_reset_regroup.add_argument("--no-recut", action="store_true", help="Reuse current sample files and embeddings instead of recutting source audio.")
+    p_speakers_reset_regroup.add_argument(
+        "--exclude-speaker-id",
+        type=int,
+        action="append",
+        default=[],
+        help="Speaker id to leave untouched during reset/regroup. Can be passed more than once.",
+    )
     p_speakers_reset_regroup.add_argument("--apply", action="store_true", help="Actually rewrite sample grouping.")
     p_speakers_reset_regroup.set_defaults(func=command_speakers)
 
@@ -1215,6 +1272,37 @@ def build_parser() -> argparse.ArgumentParser:
     p_speakers_samples = speaker_sub.add_parser("samples", help="Show speaker sample audio files.")
     p_speakers_samples.add_argument("speaker_id", type=int, nargs="?", default=None)
     p_speakers_samples.set_defaults(func=command_speakers)
+
+    p_speakers_prune_sample_audio = speaker_sub.add_parser(
+        "prune-sample-audio",
+        help="Remove old speaker sample audio files while keeping transcripts and embeddings.",
+    )
+    p_speakers_prune_sample_audio.add_argument("--date", default="today", help="today, yesterday, or YYYY-MM-DD")
+    p_speakers_prune_sample_audio.add_argument(
+        "--older-than-days",
+        type=int,
+        default=None,
+        help="Only prune sample audio created before this many days ago. Defaults to config.",
+    )
+    p_speakers_prune_sample_audio.add_argument("--limit", type=int, default=None, help="Maximum candidate files to prune.")
+    p_speakers_prune_sample_audio.add_argument("--apply", action="store_true", help="Actually move files to recycle bin.")
+    p_speakers_prune_sample_audio.set_defaults(func=command_speakers)
+
+    p_speakers_protect_sample = speaker_sub.add_parser(
+        "protect-sample",
+        help="Protect speaker sample audio from automatic pruning.",
+    )
+    p_speakers_protect_sample.add_argument("sample_ids", type=int, nargs="+")
+    p_speakers_protect_sample.add_argument("--unprotect", action="store_true", help="Remove audio protection.")
+    p_speakers_protect_sample.set_defaults(func=command_speakers)
+
+    p_speakers_protect_speaker_audio = speaker_sub.add_parser(
+        "protect-speaker-audio",
+        help="Protect all sample audio under a speaker from automatic pruning.",
+    )
+    p_speakers_protect_speaker_audio.add_argument("speaker_ids", type=int, nargs="+")
+    p_speakers_protect_speaker_audio.add_argument("--unprotect", action="store_true", help="Remove speaker-level audio protection.")
+    p_speakers_protect_speaker_audio.set_defaults(func=command_speakers)
 
     p_speakers_detach_sample = speaker_sub.add_parser("detach-sample", help="Detach one sample into its own new speaker.")
     p_speakers_detach_sample.add_argument("sample_id", type=int)
@@ -1254,6 +1342,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_speakers_representatives.add_argument("speaker_ids", type=int, nargs="*", help="Optional speaker ids. Defaults to all speakers.")
     p_speakers_representatives.add_argument("--per-speaker", type=int, default=3, help="Representative samples per speaker.")
+    p_speakers_representatives.add_argument(
+        "--min-confidence",
+        type=float,
+        default=None,
+        help="Minimum sample confidence required to mark a representative sample.",
+    )
     p_speakers_representatives.set_defaults(func=command_speakers)
 
     p_speakers_revive_hidden = speaker_sub.add_parser(

@@ -22,6 +22,7 @@
 		AA0000000000000000000112 /* SyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000213 /* SyncService.swift */; };
 		AA0000000000000000000114 /* WatchTransferService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000215 /* WatchTransferService.swift */; };
 		AA0000000000000000000121 /* AskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000222 /* AskView.swift */; };
+		AA0000000000000000000126 /* SpeakerBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000234 /* SpeakerBrowserView.swift */; };
 		AA0000000000000000000115 /* WondWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000216 /* WondWatchApp.swift */; };
 		AA0000000000000000000116 /* WatchCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000217 /* WatchCaptureView.swift */; };
 		AA0000000000000000000117 /* WatchRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000218 /* WatchRecorder.swift */; };
@@ -74,6 +75,7 @@
 		AA0000000000000000000213 /* SyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncService.swift; sourceTree = "<group>"; };
 		AA0000000000000000000215 /* WatchTransferService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchTransferService.swift; sourceTree = "<group>"; };
 		AA0000000000000000000222 /* AskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AskView.swift; sourceTree = "<group>"; };
+		AA0000000000000000000234 /* SpeakerBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeakerBrowserView.swift; sourceTree = "<group>"; };
 		AA0000000000000000000216 /* WondWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WondWatchApp.swift; sourceTree = "<group>"; };
 		AA0000000000000000000217 /* WatchCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchCaptureView.swift; sourceTree = "<group>"; };
 		AA0000000000000000000218 /* WatchRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchRecorder.swift; sourceTree = "<group>"; };
@@ -136,6 +138,7 @@
 				AA0000000000000000000213 /* SyncService.swift */,
 				AA0000000000000000000215 /* WatchTransferService.swift */,
 				AA0000000000000000000222 /* AskView.swift */,
+				AA0000000000000000000234 /* SpeakerBrowserView.swift */,
 				AA0000000000000000000210 /* ZipWriter.swift */,
 				AA0000000000000000000211 /* Formatters.swift */,
 				AA0000000000000000000226 /* Localizable.strings */,
@@ -295,6 +298,7 @@
 				AA0000000000000000000112 /* SyncService.swift in Sources */,
 				AA0000000000000000000114 /* WatchTransferService.swift in Sources */,
 				AA0000000000000000000121 /* AskView.swift in Sources */,
+				AA0000000000000000000126 /* SpeakerBrowserView.swift in Sources */,
 				AA0000000000000000000110 /* ZipWriter.swift in Sources */,
 				AA0000000000000000000111 /* Formatters.swift in Sources */,
 			);
